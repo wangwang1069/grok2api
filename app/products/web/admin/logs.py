@@ -224,10 +224,13 @@ async def _tail_stream(filename: str, lines: int = 50):
 
             if current_size > last_pos:
                 try:
+                    new_content = None
                     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
                         f.seek(last_pos)
                         new_content = f.read()
-                    last_pos = f.tell()
+                        last_pos = f.tell()
+                    if not new_content:
+                        continue
                 except OSError:
                     await asyncio.sleep(0.3)
                     continue
