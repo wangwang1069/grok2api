@@ -1,6 +1,7 @@
 """Runtime log viewer — file list, search, and real-time tail (SSE)."""
 
 import asyncio
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -182,46 +183,72 @@ def _search_logs(
 
 async def _tail_stream(filename: str, lines: int = 50):
     """Generator for SSE real-time log streaming."""
+    import json as _json
+    import time as _time
+
     d = log_dir()
     filepath = d / filename
     if not filepath.exists():
-        yield f"data: {{'error': 'Log file not found'}}\n\n"
+        yield f"data: {_json.dumps({'error': 'Log file not found'})}\n\n"
         return
 
     initial_lines = []
     try:
         with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
+            f.seek(0, 2)
+            file_size = f.tell()
+            if file_size > 0:
+                f.seek(max(0, file_size - 100 * 1024))
+                all_lines = f.readlines()
+            else:
+                all_lines = []
             tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
             for line in tail_lines:
                 parsed = _parse_log_line(line)
                 if parsed:
                     initial_lines.append(parsed)
+            last_pos = f.tell()
     except OSError as e:
-        yield f"data: {{'error': str(e)}}\n\n"
+        yield f"data: {_json.dumps({'error': str(e)})}\n\n"
         return
 
-    yield f"data: {{'type': 'init', 'lines': initial_lines}}\n\n"
+    yield f"data: {_json.dumps({'type': 'init', 'lines': initial_lines})}\n\n"
 
-    last_size = filepath.stat().st_size
+    heartbeat_counter = 0
     while True:
         await asyncio.sleep(0.5)
+        heartbeat_counter += 1
+
         try:
             current_size = filepath.stat().st_size
-            if current_size > last_size:
-                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                    f.seek(last_size)
-                    new_content = f.read()
-                last_size = current_size
+
+            if current_size > last_pos:
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(last_pos)
+                        new_content = f.read()
+                    last_pos = f.tell()
+                except OSError:
+                    await asyncio.sleep(0.3)
+                    continue
+
                 new_lines = new_content.splitlines()
                 parsed_lines = []
                 for line in new_lines:
                     parsed = _parse_log_line(line)
                     if parsed:
                         parsed_lines.append(parsed)
+
                 if parsed_lines:
-                    yield f"data: {{'type': 'append', 'lines': parsed_lines}}\n\n"
+                    yield f"data: {_json.dumps({'type': 'append', 'lines': parsed_lines})}\n\n"
+                    heartbeat_counter = 0
+
+            elif heartbeat_counter >= 20:
+                yield ": heartbeat\n\n"
+                heartbeat_counter = 0
+
         except OSError:
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'File access error'})}\n\n"
             break
 
 
