@@ -20,7 +20,7 @@ Usage in *video.py*::
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from app.control.account.enums import FeedbackKind
 from app.platform.errors import RateLimitError
