@@ -10,7 +10,7 @@ window.renderAdminHeader = async function renderAdminHeader() {
       return 'v1';
     }
   })();
-  const HEADER_HTML_CACHE_KEY = `grok2api.admin_header_html.${scriptVersion}`;
+  const HEADER_HTML_CACHE_KEY = `grok2api.admin_header_html.${scriptVersion}.20260523`;
   const META_VERSION_CACHE_KEY = `grok2api.meta_version.${scriptVersion}`;
   let appVersion = '';
   let updateInfo = null;
@@ -563,16 +563,20 @@ window.renderAdminHeader = async function renderAdminHeader() {
   await loadVersion();
 
   try {
-    const cachedHtml = window.__grok2apiAdminHeaderHtml || readSessionCache(HEADER_HTML_CACHE_KEY);
+    const forceRefresh = !readSessionCache('grok2api.header_cache_v2');
+    const cachedHtml = (!forceRefresh && window.__grok2apiAdminHeaderHtml) || readSessionCache(HEADER_HTML_CACHE_KEY);
     if (cachedHtml) {
       mount.innerHTML = cachedHtml;
-    } else {
-      const res = await fetch('/static/admin/header.html');
+    }
+    
+    if (forceRefresh || !cachedHtml) {
+      const res = await fetch('/static/admin/header.html?_v=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('header unavailable');
       const html = await res.text();
       mount.innerHTML = html;
       window.__grok2apiAdminHeaderHtml = html;
       writeSessionCache(HEADER_HTML_CACHE_KEY, html);
+      writeSessionCache('grok2api.header_cache_v2', '1');
     }
   } catch {
     mount.innerHTML = `
