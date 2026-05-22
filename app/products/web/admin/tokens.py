@@ -125,7 +125,9 @@ def _serialize_record(r) -> dict:
         "status":      r.status,
         "quota":       _quota_brief(r.quota) if isinstance(r.quota, dict) else {},
         "use_count":   r.usage_use_count or 0,
+        "fail_count":  r.usage_fail_count or 0,
         "last_used_at": r.last_use_at,
+        "last_fail_at": r.last_fail_at,
         "tags":        r.tags or [],
     }
 

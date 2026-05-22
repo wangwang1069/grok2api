@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="logs.pageTitle">Grok2API - 日志查看</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background: #FAF9F5 }
+
+    .page-hd   { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
+    .page-title{ font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub  { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    .page-actions { display:flex; gap:8px; align-items:center; flex-shrink:0 }
+
+    .section-head {
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:12px;
+      margin:28px 0 14px;
+    }
+    .section-title {
+      font-size:13px;
+      font-weight:600;
+      color:#222;
+      letter-spacing:.01em;
+    }
+
+    /* Toolbar */
+    .log-toolbar {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:12px 16px;
+      background:#fff;
+      border-radius:12px;
+      margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+    .toolbar-group {
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .toolbar-label {
+      font-size:11px;
+      font-weight:600;
+      color:#8a8a8a;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+    }
+    .toolbar-select {
+      height:32px;
+      padding:0 28px 0 10px;
+      border-radius:8px;
+      border:1px solid #e6e6e6;
+      background:#fafafa;
+      font-size:13px;
+      color:#333;
+      appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 8px center;
+      cursor:pointer;
+    }
+    .toolbar-select:focus { outline:none; border-color:#bbb; box-shadow:0 0 0 2px rgba(0,0,0,.04) }
+    .toolbar-input {
+      height:32px;
+      padding:0 10px;
+      border-radius:8px;
+      border:1px solid #e6e6e6;
+      background:#fafafa;
+      font-size:13px;
+      color:#333;
+      min-width:180px;
+    }
+    .toolbar-input:focus { outline:none; border-color:#bbb; box-shadow:0 0 0 2px rgba(0,0,0,.04) }
+    .toolbar-btn {
+      height:32px;
+      padding:0 14px;
+      border-radius:999px;
+      font-size:13px;
+      font-weight:600;
+      border:1px solid #e6e6e6;
+      background:#fafafa;
+      color:#444;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      transition:background .15s, border-color .15s;
+    }
+    .toolbar-btn:hover { background:#f3f3f3; border-color:#dcdcdc }
+    .toolbar-btn-primary { background:#111; border-color:#111; color:#fff }
+    .toolbar-btn-primary:hover { background:#222; border-color:#222 }
+    .toolbar-btn-active { background:#111; border-color:#111; color:#fff }
+    .toolbar-btn-danger { color:#dc2626; border-color:#fecaca }
+    .toolbar-btn-danger:hover { background:#fef2f2; border-color:#fca5a5 }
+
+    /* Log viewer */
+    .log-viewer {
+      background:#fff;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid #f0f0f0;
+    }
+    .log-header {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:10px 16px;
+      background:#fafafa;
+      border-bottom:1px solid #f0f0f0;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .log-info { font-size:12px; color:#8a8a8a; display:flex; align-items:center; gap:12px }
+    .log-info-item { display:flex; align-items:center; gap:4px }
+    .log-actions { display:flex; align-items:center; gap:6px }
+    .log-body {
+      height:calc(100vh - 320px);
+      min-height:400px;
+      overflow:auto;
+      font-family:'Geist Mono','SF Mono','Consolas','Monaco',monospace;
+      font-size:12px;
+      line-height:1.6;
+      background:#1e1e1e;
+      color:#d4d4d4;
+      padding:0;
+    }
+    .log-line {
+      display:flex;
+      padding:2px 12px;
+      border-left:3px solid transparent;
+      transition:background .08s;
+      white-space:pre-wrap;
+      word-break:break-all;
+    }
+    .log-line:hover { background:rgba(255,255,255,.04) }
+    .log-line-num {
+      flex:0 0 auto;
+      width:50px;
+      text-align:right;
+      padding-right:12px;
+      color:#6a6a6a;
+      user-select:none;
+      font-size:11px;
+    }
+    .log-line-content {
+      flex:1;
+      min-width:0;
+    }
+    .log-time { color:#6a9955 }
+    .log-level-TRACE { color:#858585 }
+    .log-level-DEBUG { color:#569cd6 }
+    .log-level-INFO { color:#4ec9b0 }
+    .log-level-SUCCESS { color:#89d185 }
+    .log-level-WARNING { color:#dcdcaa }
+    .log-level-ERROR { color:#f44747 }
+    .log-level-CRITICAL { color:#f44747; font-weight:700 }
+    .log-logger { color:#9cdcfe }
+    .log-location { color:#c586c0 }
+    .log-msg { color:#d4d4d4 }
+
+    .log-line.level-ERROR,
+    .log-line.level-CRITICAL {
+      border-left-color:#f44747;
+      background:rgba(244,71,71,.06);
+    }
+    .log-line.level-WARNING {
+      border-left-color:#dcdcaa;
+      background:rgba(220,220,170,.04);
+    }
+
+    /* Pagination */
+    .pagi-bar {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:10px 16px;
+      background:#fafafa;
+      border-top:1px solid #f0f0f0;
+      font-size:12px;
+      color:#8a8a8a;
+    }
+    .pagi-controls { display:flex; align-items:center; gap:6px }
+    .pagi-btn  {
+      width:28px;
+      height:28px;
+      border-radius:6px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      color:inherit;
+      transition:background .1s;
+      cursor:pointer;
+      border:none;
+      background:none;
+    }
+    .pagi-btn:hover { background:var(--border) }
+    .pagi-btn:disabled { opacity:.35; pointer-events:none }
+    .pagi-page { min-width:0; padding:0 8px; font-variant-numeric:tabular-nums; white-space:nowrap }
+
+    /* Status indicator */
+    .status-dot {
+      width:8px;
+      height:8px;
+      border-radius:50%;
+      display:inline-block;
+      flex-shrink:0;
+    }
+    .status-dot-idle { background:#d4d4d4 }
+    .status-dot-live { background:#22c55e; animation:pulse 1.5s ease-in-out infinite }
+    @keyframes pulse {
+      0%, 100% { opacity:1 }
+      50% { opacity:.4 }
+    }
+
+    /* Empty state */
+    .log-empty {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100%;
+      color:#666;
+      font-size:13px;
+    }
+
+    /* Responsive */
+    @media (max-width: 840px) {
+      .page-hd { flex-direction:column; align-items:flex-start }
+      .log-toolbar { padding:10px 12px }
+      .log-body { height:calc(100vh - 380px); min-height:300px }
+    }
+  </style>
+</head>
+<body>
+
+<div id="admin-header" data-active="/admin/logs"></div>
+
+<main class="admin-main" style="padding-bottom:60px">
+
+  <div class="page-hd">
+    <div>
+      <div class="page-title" data-i18n="logs.pageHeading">日志查看</div>
+      <div class="page-sub" data-i18n="logs.pageSubtitle">实时查询和检索运行时日志，支持关键词搜索、级别过滤和时间范围筛选。</div>
+    </div>
+    <div class="page-actions">
+      <button class="toolbar-btn" id="btn-auto-scroll" onclick="toggleAutoScroll()" title="自动滚动">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        自动滚动
+      </button>
+    </div>
+  </div>
+
+  <div class="log-toolbar">
+    <div class="toolbar-group">
+      <span class="toolbar-label">文件</span>
+      <select class="toolbar-select" id="file-sel" onchange="onFileChange()" style="min-width:220px"></select>
+    </div>
+
+    <div class="toolbar-group">
+      <span class="toolbar-label">级别</span>
+      <select class="toolbar-select" id="level-sel" onchange="onSearch()">
+        <option value="" data-i18n="logs.allLevels">全部</option>
+        <option value="TRACE">TRACE</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="INFO">INFO</option>
+        <option value="SUCCESS">SUCCESS</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+    </div>
+
+    <div class="toolbar-group" style="flex:1; min-width:200px">
+      <input type="text" class="toolbar-input" id="keyword-input" placeholder="搜索关键词..." onkeydown="if(event.key==='Enter')onSearch()">
+    </div>
+
+    <button class="toolbar-btn toolbar-btn-primary" onclick="onSearch()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      搜索
+    </button>
+
+    <button class="toolbar-btn" id="btn-tail" onclick="toggleTailMode()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      实时跟踪
+    </button>
+
+    <button class="toolbar-btn toolbar-btn-danger" onclick="clearFilters()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      清除
+    </button>
+  </div>
+
+  <div class="log-viewer">
+    <div class="log-header">
+      <div class="log-info">
+        <span class="log-info-item">
+          <span class="status-dot status-dot-idle" id="status-dot"></span>
+          <span id="status-text">就绪</span>
+        </span>
+        <span class="log-info-item" id="log-meta"></span>
+      </div>
+      <div class="log-actions">
+        <button class="pagi-btn" onclick="prevPage()" id="btn-prev" disabled title="上一页">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="pagi-page" id="pagi-page">第 0 / 0 页</span>
+        <button class="pagi-btn" onclick="nextPage()" id="btn-next" disabled title="下一页">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="log-body" id="log-container">
+      <div class="log-empty" id="log-empty">请选择日志文件或点击实时跟踪</div>
+    </div>
+
+    <div class="pagi-bar" id="pagi-bar" style="display:none">
+      <span>每页显示：</span>
+      <select class="toolbar-select" id="page-size-sel" onchange="changePageSize(this.value)" style="height:26px; padding:0 24px 0 6px; font-size:12px">
+        <option value="50">50 行</option>
+        <option value="100" selected>100 行</option>
+        <option value="200">200 行</option>
+        <option value="500">500 行</option>
+      </select>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+const PAGE_SIZE_KEY = 'admin.logs.page_size';
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
+
+let _filename = '';
+let _page = 1;
+let _pageSize = loadSavedPageSize();
+let _total = 0;
+let _isTailMode = false;
+let _autoScroll = true;
+let _eventSource = null;
+
+function tr(key, params, fallback) {
+  const value = t(key, params);
+  return value === key ? (fallback ?? key) : value;
+}
+
+function waitI18n() {
+  return new Promise((resolve) => I18n.onReady(resolve));
+}
+
+function loadSavedPageSize() {
+  const raw = Number(localStorage.getItem(PAGE_SIZE_KEY));
+  return PAGE_SIZE_OPTIONS.includes(raw) ? raw : 100;
+}
+
+function _esc(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function _api(method, path, body) {
+  const key = await adminKey.get();
+  const r = await fetch(ADMIN_API + path, {
+    method,
+    headers: { ...(body != null && { 'Content-Type': 'application/json' }), Authorization: `Bearer ${key}` },
+    ...(body != null && { body: JSON.stringify(body) }),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || r.status);
+  }
+  return r.json();
+}
+
+async function loadLogFiles() {
+  try {
+    const d = await _api('GET', '/logs/files');
+    const sel = document.getElementById('file-sel');
+    sel.innerHTML = '';
+    if (!d.files || !d.files.length) {
+      sel.innerHTML = '<option value="">暂无日志文件</option>';
+      return;
+    }
+    d.files.forEach((f) => {
+      const opt = document.createElement('option');
+      opt.value = f.name;
+      opt.textContent = `${f.name} (${_fmtBytes(f.size_bytes)})`;
+      sel.appendChild(opt);
+    });
+    if (d.files.length > 0 && !_filename) {
+      _filename = d.files[0].name;
+      sel.value = _filename;
+    }
+  } catch (e) {
+    console.error('Failed to load log files:', e);
+    showToast(tr('logs.loadFilesFailed', { message: e.message }, `加载失败: ${e.message}`), 'error');
+  }
+}
+
+async function onFileChange() {
+  const sel = document.getElementById('file-sel');
+  _filename = sel.value;
+  stopTailMode();
+  _page = 1;
+  if (_filename) {
+    await loadLogs();
+  } else {
+    renderEmpty('请选择日志文件');
+  }
+}
+
+async function onSearch() {
+  stopTailMode();
+  _page = 1;
+  await loadLogs();
+}
+
+async function loadLogs() {
+  if (!_filename) return;
+  setStatus('loading', tr('logs.loading', null, '加载中…'));
+
+  try {
+    const keyword = document.getElementById('keyword-input').value.trim();
+    const level = document.getElementById('level-sel').value;
+
+    let d;
+    if (keyword || level) {
+      d = await _api('GET', `/logs/search?filename=${encodeURIComponent(_filename)}&keyword=${encodeURIComponent(keyword)}&level=${encodeURIComponent(level)}&offset=${(_page - 1) * _pageSize}&limit=${_pageSize}`);
+    } else {
+      d = await _api('GET', `/logs/read?filename=${encodeURIComponent(_filename)}&offset=${(_page - 1) * _pageSize}&limit=${_pageSize}`);
+    }
+
+    _total = d.total || 0;
+    renderLogs(d.lines || []);
+    updatePagination();
+    setStatus('ready', tr('logs.ready', null, '就绪'));
+  } catch (e) {
+    console.error('Failed to load logs:', e);
+    renderEmpty(tr('logs.loadError', { message: e.message }, `加载错误: ${e.message}`));
+    setStatus('error', tr('logs.error', null, '错误'));
+  }
+}
+
+function renderLogs(lines) {
+  const container = document.getElementById('log-container');
+  if (!lines.length) {
+    container.innerHTML = `<div class="log-empty">${_esc(tr('logs.noResults', null, '无匹配结果'))}</div>`;
+    document.getElementById('log-meta').textContent = '';
+    return;
+  }
+
+  const html = lines.map((line) => {
+    const num = line._line_number || '';
+    const levelClass = line.level ? `log-level-${line.level}` : '';
+    const rowLevelClass = line.level ? `level-${line.level}` : '';
+
+    let content = '';
+    if (line.time && line.level) {
+      content += `<span class="log-time">${_esc(line.time)}</span> | `;
+      content += `<span class="${levelClass}">${_esc(line.level.padEnd(8))}</span> | `;
+      if (line.logger) {
+        content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
+      }
+      if (line.location) {
+        content += `<span class="log-location">${_esc(line.location)}</span> `;
+      }
+      content += `- <span class="log-msg">${highlightKeyword(_esc(line.message || ''))}</span>`;
+    } else {
+      content = highlightKeyword(_esc(line.raw || line.message || ''));
+    }
+
+    return `<div class="log-line ${rowLevelClass}"><span class="log-line-num">${num}</span><span class="log-line-content">${content}</span></div>`;
+  }).join('');
+
+  container.innerHTML = html;
+  document.getElementById('log-meta').textContent =
+    tr('logs.logMeta', { total: _total, current: lines.length }, `共 ${_total} 条，当前 ${lines.length} 条`);
+
+  if (_autoScroll) {
+    scrollToBottom();
+  }
+}
+
+function highlightKeyword(text) {
+  const keyword = document.getElementById('keyword-input').value.trim();
+  if (!keyword) return text;
+  const regex = new RegExp(`(${_escRegex(keyword)})`, 'gi');
+  return text.replace(regex, '<mark style="background:#fef08a;color:#000;padding:0 2px;border-radius:2px">$1</mark>');
+}
+
+function _escRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function renderEmpty(message) {
+  document.getElementById('log-container').innerHTML = `<div class="log-empty">${_esc(message)}</div>`;
+  document.getElementById('log-meta').textContent = '';
+  document.getElementById('pagi-bar').style.display = 'none';
+}
+
+function updatePagination() {
+  const pages = Math.max(1, Math.ceil(_total / _pageSize));
+  document.getElementById('pagi-page').textContent =
+    tr('logs.pageIndicator', { current: _page, total: pages }, `第 ${_page} / ${pages} 页`);
+  document.getElementById('btn-prev').disabled = _page <= 1;
+  document.getElementById('btn-next').disabled = _page >= pages;
+  document.getElementById('pagi-bar').style.display = _total > 0 ? '' : 'none';
+}
+
+function prevPage() {
+  if (_page > 1) {
+    _page -= 1;
+    loadLogs();
+  }
+}
+
+function nextPage() {
+  const pages = Math.max(1, Math.ceil(_total / _pageSize));
+  if (_page < pages) {
+    _page += 1;
+    loadLogs();
+  }
+}
+
+function changePageSize(value) {
+  const next = Number(value);
+  _pageSize = PAGE_SIZE_OPTIONS.includes(next) ? next : 100;
+  localStorage.setItem(PAGE_SIZE_KEY, String(_pageSize));
+  _page = 1;
+  loadLogs();
+}
+
+function toggleTailMode() {
+  if (_isTailMode) {
+    stopTailMode();
+  } else {
+    startTailMode();
+  }
+}
+
+function startTailMode() {
+  if (!_filename) {
+    showToast(tr('logs.selectFileFirst', null, '请先选择日志文件'), 'warning');
+    return;
+  }
+  _isTailMode = true;
+  const btn = document.getElementById('btn-tail');
+  btn.classList.add('toolbar-btn-active');
+  btn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+    停止跟踪
+  `;
+  disableControls(true);
+  setStatus('live', tr('logs.liveMode', null, '实时跟踪中'));
+  connectSSE();
+}
+
+function stopTailMode() {
+  _isTailMode = false;
+  if (_eventSource) {
+    _eventSource.close();
+    _eventSource = null;
+  }
+  const btn = document.getElementById('btn-tail');
+  btn.classList.remove('toolbar-btn-active');
+  btn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    实时跟踪
+  `;
+  disableControls(false);
+  setStatus('idle', tr('logs.ready', null, '就绪'));
+}
+
+async function connectSSE() {
+  if (!_filename || !_isTailMode) return;
+
+  const key = await adminKey.get();
+  const url = `${ADMIN_API}/logs/tail?filename=${encodeURIComponent(_filename)}&lines=100&app_key=${encodeURIComponent(key)}`;
+
+  if (_eventSource) {
+    _eventSource.close();
+  }
+
+  _eventSource = new EventSource(url);
+
+  _eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        console.error('SSE error:', data.error);
+        showToast(tr('logs.tailError', { error: data.error }, `错误: ${data.error}`), 'error');
+        stopTailMode();
+        return;
+      }
+      if (data.type === 'init') {
+        const container = document.getElementById('log-container');
+        container.innerHTML = '';
+        if (data.lines && data.lines.length) {
+          appendLogLines(data.lines, true);
+        }
+        document.getElementById('log-meta').textContent =
+          tr('logs.liveMeta', { count: data.lines?.length || 0 }, `已加载 ${data.lines?.length || 0} 条`);
+      } else if (data.type === 'append') {
+        appendLogLines(data.lines || [], false);
+        const metaEl = document.getElementById('log-meta');
+        const currentMatch = metaEl.textContent.match(/\d+/);
+        const current = currentMatch ? parseInt(currentMatch[0], 10) : 0;
+        metaEl.textContent =
+          tr('logs.liveMeta', { count: current + (data.lines?.length || 0) }, `已加载 ${current + (data.lines?.length || 0)} 条`);
+      }
+    } catch (e) {
+      console.error('Failed to parse SSE message:', e);
+    }
+  };
+
+  _eventSource.onerror = () => {
+    if (_isTailMode) {
+      setTimeout(() => {
+        if (_isTailMode) connectSSE();
+      }, 2000);
+    }
+  };
+}
+
+function appendLogLines(lines, clear) {
+  const container = document.getElementById('log-container');
+  if (clear) container.innerHTML = '';
+
+  const fragment = document.createDocumentFragment();
+  lines.forEach((line) => {
+    const div = document.createElement('div');
+    const levelClass = line.level ? `log-level-${line.level}` : '';
+    const rowLevelClass = line.level ? `level-${line.level}` : '';
+
+    let content = '';
+    if (line.time && line.level) {
+      content += `<span class="log-time">${_esc(line.time)}</span> | `;
+      content += `<span class="${levelClass}">${_esc(line.level.padEnd(8))}</span> | `;
+      if (line.logger) {
+        content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
+      }
+      if (line.location) {
+        content += `<span class="log-location">${_esc(line.location)}</span> `;
+      }
+      content += `- <span class="log-msg">${_esc(line.message || '')}</span>`;
+    } else {
+      content = _esc(line.raw || line.message || '');
+    }
+
+    div.className = `log-line ${rowLevelClass}`;
+    div.innerHTML = `<span class="log-line-num"></span><span class="log-line-content">${content}</span>`;
+    fragment.appendChild(div);
+  });
+
+  container.appendChild(fragment);
+
+  if (_autoScroll) {
+    scrollToBottom();
+  }
+}
+
+function disableControls(disabled) {
+  document.getElementById('file-sel').disabled = disabled;
+  document.getElementById('level-sel').disabled = disabled;
+  document.getElementById('keyword-input').disabled = disabled;
+  document.getElementById('btn-prev').disabled = disabled;
+  document.getElementById('btn-next').disabled = disabled;
+}
+
+function clearFilters() {
+  stopTailMode();
+  document.getElementById('keyword-input').value = '';
+  document.getElementById('level-sel').value = '';
+  _page = 1;
+  if (_filename) {
+    loadLogs();
+  }
+}
+
+function toggleAutoScroll() {
+  _autoScroll = !_autoScroll;
+  const btn = document.getElementById('btn-auto-scroll');
+  btn.classList.toggle('toolbar-btn-active', _autoScroll);
+  if (_autoScroll) {
+    scrollToBottom();
+  }
+}
+
+function scrollToBottom() {
+  const container = document.getElementById('log-container');
+  requestAnimationFrame(() => {
+    container.scrollTop = container.scrollHeight;
+  });
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  dot.className = 'status-dot';
+  if (state === 'live') {
+    dot.classList.add('status-dot-live');
+  } else if (state === 'loading') {
+    dot.style.background = '#f59e0b';
+  } else if (state === 'error') {
+    dot.style.background = '#ef4444';
+  } else {
+    dot.classList.add('status-dot-idle');
+  }
+  txt.textContent = text;
+}
+
+function _fmtBytes(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function applyLogsI18n() {
+  document.title = tr('logs.pageTitle', null, 'Grok2API - 日志查看');
+  const fileSel = document.getElementById('file-sel');
+  if (fileSel.value) {
+    const opts = fileSel.querySelectorAll('option');
+    opts.forEach((opt) => {
+      if (opt.value === _filename) {
+        fileSel.value = _filename;
+      }
+    });
+  }
+}
+
+(async () => {
+  await waitI18n();
+  applyLogsI18n();
+  await renderAdminHeader?.();
+  await renderSiteFooter?.();
+  const key = await adminKey.get();
+  if (!key || !await verifyKey(ADMIN_API + '/verify', key).catch(() => false)) {
+    location.href = '/admin/login';
+    return;
+  }
+  await loadLogFiles();
+  if (_filename) {
+    await loadLogs();
+  }
+})();
+</script>
+</body>
+</html>

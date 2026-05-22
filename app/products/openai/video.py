@@ -46,6 +46,8 @@ from app.dataplane.reverse.transport.asset_upload import (
 )
 from app.dataplane.reverse.transport.assets import download_asset
 from app.dataplane.reverse.transport.media import create_media_post
+from . import video_account_diag
+from . import video_retry
 from ._format import (
     make_chat_response,
     make_response_id,
@@ -846,25 +848,16 @@ async def _run_video_job(
         if _acct_dir is None:
             raise RateLimitError("Account directory not initialised")
 
-        acct = await _acct_dir.reserve_any(
-            pool_candidates=spec.pool_candidates(),
-            now_s_override=now_s(),
-        )
-        if acct is None:
-            raise RateLimitError("No available accounts for video generation")
+        cfg = get_config()
+        timeout_s = cfg.get_float("video.timeout", 180.0)
+        max_retries = cfg.get_int("video.max_retries", 3)
 
-        token = acct.token
-        success = False
-        fail_exc: BaseException | None = None
-        try:
-            cfg = get_config()
-            timeout_s = cfg.get_float("video.timeout", 180.0)
+        async def _progress(progress: int) -> None:
+            await _set_job_status(
+                job, status="in_progress", progress=max(1, progress)
+            )
 
-            async def _progress(progress: int) -> None:
-                await _set_job_status(
-                    job, status="in_progress", progress=max(1, progress)
-                )
-
+        async def _execute(token: str):
             artifact = await _generate_video_with_token(
                 token=token,
                 prompt=prompt,
@@ -876,25 +869,24 @@ async def _run_video_job(
                 input_references=input_references,
                 progress_cb=_progress,
             )
-            raw, _mime = await _download_video_bytes(token, artifact.video_url)
-            success = True
-        except BaseException as exc:
-            fail_exc = exc
-            raise
-        finally:
-            await _acct_dir.release(acct)
-            kind = (
-                FeedbackKind.SUCCESS
-                if success
-                else _feedback_kind(fail_exc)
-                if fail_exc
-                else FeedbackKind.SERVER_ERROR
-            )
-            await _acct_dir.feedback(token, kind, int(spec.mode_id))
-            if success:
-                asyncio.create_task(_quota_sync(token, int(spec.mode_id)))
-            else:
-                asyncio.create_task(_fail_sync(token, int(spec.mode_id), fail_exc))
+            return artifact
+
+        artifact, token = await video_retry.execute_with_retry(
+            directory=_acct_dir,
+            reserve_fn=video_account_diag.reserve_and_diagnose,
+            execute_fn=_execute,
+            feedback_kind_fn=_feedback_kind,
+            release_fn=_acct_dir.release,
+            feedback_fn=_acct_dir.feedback,
+            fail_sync_fn=_fail_sync,
+            quota_sync_fn=_quota_sync,
+            job_id=job.id,
+            pool_candidates=spec.pool_candidates(),
+            spec=spec,
+            max_retries=max_retries,
+        )
+
+        raw, content_type = await _download_video_bytes(token, artifact.video_url)
 
         path = _save_video_bytes(raw, job.id)
         async with _VIDEO_JOBS_LOCK:
