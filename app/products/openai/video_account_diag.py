@@ -110,7 +110,7 @@ def _snapshot_account(
         "idx": idx,
         "token": _mask_token(token),
         "pool": _pool_name(pool_id),
-        "status": _status_name(status_id),
+        "status": _status_name(status),
         "target_mode_quota": quota,
         "target_mode_total": total,
         "window_sec": window,

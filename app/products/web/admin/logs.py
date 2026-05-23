@@ -197,12 +197,15 @@ def _search_logs(
     return matched, total_matched
 
 
-async def _tail_stream(filename: str, lines: int = 50):
+async def _tail_stream(filename: str, lines: int = 50, skip_init: bool = False):
     """Generator for SSE real-time log streaming.
 
     Handles log rotation gracefully: when the file is renamed/truncated
     (e.g. by logrotate), the stream detects the inode change and resets
     to reading from the beginning of the new file.
+
+    When *skip_init* is True the initial batch of lines is omitted so the
+    caller can load historical data separately via the /read endpoint.
     """
     import json as _json
 
@@ -220,10 +223,6 @@ async def _tail_stream(filename: str, lines: int = 50):
             return None, None
 
     def _safe_read_from(pos):
-        """Read from *pos* and return (content_bytes, next_pos | None).
-
-        Returns ``(None, None)`` on any I/O error so the caller can retry.
-        """
         try:
             with open(filepath, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(pos)
@@ -235,30 +234,32 @@ async def _tail_stream(filename: str, lines: int = 50):
         except (OSError, ValueError):
             return None, None
 
-    initial_lines = []
     init_size, init_ino = _safe_stat()
 
-    if init_size is not None and init_size > 0:
-        content, pos = _safe_read_from(max(0, init_size - 100 * 1024))
-        if content:
-            all_lines = content.splitlines()
-            tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-            for line in tail_lines:
-                parsed = _parse_log_line(line)
-                if parsed:
-                    initial_lines.append(parsed)
-            if pos is not None:
-                last_pos = pos
+    if skip_init:
+        last_pos = init_size if init_size is not None else 0
+    else:
+        initial_lines = []
+        if init_size is not None and init_size > 0:
+            content, pos = _safe_read_from(max(0, init_size - 100 * 1024))
+            if content:
+                all_lines = content.splitlines()
+                tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                for line in tail_lines:
+                    parsed = _parse_log_line(line)
+                    if parsed:
+                        initial_lines.append(parsed)
+                if pos is not None:
+                    last_pos = pos
+                else:
+                    last_pos = init_size
             else:
                 last_pos = init_size
         else:
-            last_pos = init_size
-    else:
-        last_pos = 0
+            last_pos = 0
+        yield f"data: {_json.dumps({'type': 'init', 'lines': initial_lines})}\n\n"
 
     last_ino = init_ino
-
-    yield f"data: {_json.dumps({'type': 'init', 'lines': initial_lines})}\n\n"
 
     heartbeat_counter = 0
     while True:
@@ -367,10 +368,11 @@ async def search_logs(
 async def tail_logs(
     filename: str = Query(..., description="Log file name"),
     lines: int = Query(50, ge=10, le=_MAX_TAIL_LINES, description="Initial tail lines"),
+    skip_init: bool = Query(False, description="Skip initial lines, only stream new content"),
 ):
     """Real-time log streaming via SSE."""
     return StreamingResponse(
-        _tail_stream(filename, lines),
+        _tail_stream(filename, lines, skip_init=skip_init),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

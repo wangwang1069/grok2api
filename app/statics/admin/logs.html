@@ -17,14 +17,8 @@
     .page-actions { display:flex; gap:8px; align-items:center; flex-shrink:0 }
 
     .log-toolbar {
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:12px 16px;
-      background:#fff;
-      border-radius:12px;
-      margin-bottom:12px;
-      flex-wrap:wrap;
+      display:flex; align-items:center; gap:10px; padding:12px 16px;
+      background:#fff; border-radius:12px; margin-bottom:12px; flex-wrap:wrap;
     }
     .toolbar-group { display:flex; align-items:center; gap:6px }
     .toolbar-label { font-size:11px; font-weight:600; color:#8a8a8a; text-transform:uppercase; letter-spacing:.03em }
@@ -48,7 +42,6 @@
     .toolbar-btn:hover { background:#f3f3f3; border-color:#dcdcdc }
     .toolbar-btn-primary { background:#111; border-color:#111; color:#fff }
     .toolbar-btn-primary:hover { background:#222; border-color:#222 }
-    .toolbar-btn-active { background:#111; border-color:#111; color:#fff }
     .toolbar-btn-danger { color:#dc2626; border-color:#fecaca }
     .toolbar-btn-danger:hover { background:#fef2f2; border-color:#fca5a5 }
 
@@ -136,9 +129,7 @@
     }
     @keyframes spin { to{transform:rotate(360deg)} }
 
-    .no-more-hint {
-      text-align:center; padding:8px 0; color:#555; font-size:11px;
-    }
+    .no-more-hint { text-align:center; padding:8px 0; color:#555; font-size:11px }
 
     @media (max-width: 840px) {
       .page-hd { flex-direction:column; align-items:flex-start }
@@ -191,10 +182,6 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       搜索
     </button>
-    <button class="toolbar-btn" id="btn-tail" onclick="toggleTailMode()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-      实时跟踪
-    </button>
     <button class="toolbar-btn toolbar-btn-danger" onclick="clearFilters()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       清除
@@ -219,7 +206,7 @@
     </div>
     <div class="log-body-wrap">
       <div class="log-body" id="log-container">
-        <div class="log-empty" id="log-empty">请选择日志文件或点击实时跟踪</div>
+        <div class="log-empty" id="log-empty">请选择日志文件</div>
       </div>
       <div class="scroll-hint" id="scroll-hint" onclick="scrollToLatest()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
@@ -242,13 +229,13 @@ const SCROLL_THRESHOLD = 80;
 let _filename = '';
 let _totalLines = 0;
 let _earliestOffset = 0;
-let _latestOffset = 0;
 let _hasOlder = true;
 let _isLoadingOlder = false;
-let _isTailMode = false;
 let _userScrolledUp = false;
 let _eventSource = null;
 let _isFullscreen = false;
+let _sseLiveCount = 0;
+let _isSearchMode = false;
 
 function tr(key, params, fallback) {
   const value = t(key, params);
@@ -289,65 +276,81 @@ async function loadLogFiles() {
   }
 }
 
-/* ── Load logs (from end) ──────────────────────── */
+/* ── Init / File change ────────────────────────── */
 
 async function onFileChange() {
   _filename = document.getElementById('file-sel').value;
-  stopTailMode();
+  disconnectSSE();
   resetState();
-  if (_filename) await loadLatestLogs();
+  if (_filename) await initLogFile();
   else renderEmpty('请选择日志文件');
 }
 
 async function onSearch() {
-  stopTailMode();
+  const keyword = document.getElementById('keyword-input').value.trim();
+  const level = document.getElementById('level-sel').value;
+  _isSearchMode = !!(keyword || level);
+  disconnectSSE();
   resetState();
-  await loadLatestLogs();
+
+  if (!_filename) return;
+
+  if (_isSearchMode) {
+    setStatus('loading', '搜索中…');
+    try {
+      const d = await _api('GET', `/logs/search?filename=${encodeURIComponent(_filename)}&keyword=${encodeURIComponent(keyword)}&level=${encodeURIComponent(level)}&offset=0&limit=${BATCH_SIZE}`);
+      _earliestOffset = 0;
+      _totalLines = d.total || 0;
+      _hasOlder = false;
+      renderLogs(d.lines || []);
+      updateMeta();
+      setStatus('idle', '搜索结果');
+    } catch (e) {
+      renderEmpty(`搜索错误: ${e.message}`);
+      setStatus('error', '错误');
+    }
+  } else {
+    await initLogFile();
+  }
 }
 
 function resetState() {
   _totalLines = 0;
   _earliestOffset = 0;
-  _latestOffset = 0;
   _hasOlder = true;
   _isLoadingOlder = false;
   _userScrolledUp = false;
+  _sseLiveCount = 0;
+  _isSearchMode = false;
   updateScrollHint();
 }
 
-async function loadLatestLogs() {
+async function initLogFile() {
   if (!_filename) return;
-  setStatus('loading', tr('logs.loading', null, '加载中…'));
+  setStatus('loading', '加载中…');
   try {
-    const keyword = document.getElementById('keyword-input').value.trim();
-    const level = document.getElementById('level-sel').value;
-    let d;
-    if (keyword || level) {
-      d = await _api('GET', `/logs/search?filename=${encodeURIComponent(_filename)}&keyword=${encodeURIComponent(keyword)}&level=${encodeURIComponent(level)}&offset=0&limit=${BATCH_SIZE}`);
-      _earliestOffset = 0;
-      _latestOffset = d.lines?.length || 0;
-      _totalLines = d.total || 0;
-      _hasOlder = false;
-    } else {
-      d = await _api('GET', `/logs/read?filename=${encodeURIComponent(_filename)}&from_end=true&limit=${BATCH_SIZE}`);
-      _earliestOffset = d.offset || 0;
-      _latestOffset = _earliestOffset + (d.lines?.length || 0);
-      _totalLines = d.total || 0;
-      _hasOlder = _earliestOffset > 0;
-    }
+    const d = await _api('GET', `/logs/read?filename=${encodeURIComponent(_filename)}&from_end=true&limit=${BATCH_SIZE}`);
+    _earliestOffset = d.offset || 0;
+    _totalLines = d.total || 0;
+    _hasOlder = _earliestOffset > 0;
     renderLogs(d.lines || []);
     updateMeta();
     scrollToBottom();
-    setStatus('ready', tr('logs.ready', null, '就绪'));
+    connectSSE();
+    setStatus('live', '实时监听中');
   } catch (e) {
-    renderEmpty(tr('logs.loadError', { message: e.message }, `加载错误: ${e.message}`));
-    setStatus('error', tr('logs.error', null, '错误'));
+    renderEmpty(`加载错误: ${e.message}`);
+    setStatus('error', '错误');
   }
 }
 
+/* ── Load older logs (scroll up) ───────────────── */
+
 async function loadOlderLogs() {
-  if (!_hasOlder || _isLoadingOlder || _isTailMode) return;
-  if (_earliestOffset <= 0) { _hasOlder = false; return; }
+  if (!_hasOlder || _isLoadingOlder || _earliestOffset <= 0) {
+    if (_earliestOffset <= 0) { _hasOlder = false; showNoMoreHint(); }
+    return;
+  }
   _isLoadingOlder = true;
   showLoadingTop();
   try {
@@ -416,6 +419,31 @@ function prependLogLines(lines) {
   else c.appendChild(frag);
 }
 
+function appendSSELines(lines) {
+  if (!lines.length) return;
+  const c = document.getElementById('log-container');
+  const emptyEl = c.querySelector('.log-empty');
+  if (emptyEl) emptyEl.remove();
+  const frag = document.createDocumentFragment();
+  lines.forEach(line => {
+    const div = document.createElement('div');
+    const lc = line.level ? `log-level-${line.level}` : '';
+    const rl = line.level ? `level-${line.level}` : '';
+    let content = '';
+    if (line.time && line.level) {
+      content += `<span class="log-time">${_esc(line.time)}</span> | `;
+      content += `<span class="${lc}">${_esc(line.level.padEnd(8))}</span> | `;
+      if (line.logger) content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
+      if (line.location) content += `<span class="log-location">${_esc(line.location)}</span> `;
+      content += `- <span class="log-msg">${_esc(line.message || '')}</span>`;
+    } else { content = _esc(line.raw || line.message || ''); }
+    div.className = `log-line ${rl}`;
+    div.innerHTML = `<span class="log-line-num"></span><span class="log-line-content">${content}</span>`;
+    frag.appendChild(div);
+  });
+  c.appendChild(frag);
+}
+
 function renderEmpty(msg) {
   document.getElementById('log-container').innerHTML = `<div class="log-empty">${_esc(msg)}</div>`;
   updateMetaEmpty();
@@ -455,109 +483,70 @@ function highlightKeyword(text) {
 /* ── Meta ──────────────────────────────────────── */
 
 function updateMeta() {
-  const loaded = _latestOffset - _earliestOffset;
+  const loaded = _totalLines - _earliestOffset + _sseLiveCount;
   document.getElementById('log-meta').textContent =
-    tr('logs.logMeta', { total: _totalLines, loaded }, `共 ${_totalLines} 条，已加载 ${loaded} 条`);
+    `共 ${_totalLines} 条，已加载 ${loaded} 条`;
 }
 function updateMetaEmpty() { document.getElementById('log-meta').textContent = ''; }
 
-/* ── Tail mode (SSE) ────────────────────────────── */
+/* ── SSE (always-on real-time) ─────────────────── */
 
-function toggleTailMode() { _isTailMode ? stopTailMode() : startTailMode(); }
+function connectSSE() {
+  if (!_filename || _isSearchMode) return;
+  disconnectSSE();
 
-function startTailMode() {
-  if (!_filename) { showToast(tr('logs.selectFileFirst', null, '请先选择日志文件'), 'warning'); return; }
-  _isTailMode = true;
-  _userScrolledUp = false;
-  const btn = document.getElementById('btn-tail');
-  btn.classList.add('toolbar-btn-active');
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg> 停止跟踪`;
-  disableControls(true);
-  setStatus('live', tr('logs.liveMode', null, '实时跟踪中'));
-  updateScrollHint();
-  connectSSE();
+  const url = `${ADMIN_API}/logs/tail?filename=${encodeURIComponent(_filename)}&skip_init=true&app_key=`;
+  _pendingSSEUrl = url;
+  _connectSSEWithKey();
 }
 
-function stopTailMode() {
-  _isTailMode = false;
-  if (_eventSource) { _eventSource.close(); _eventSource = null; }
-  const btn = document.getElementById('btn-tail');
-  btn.classList.remove('toolbar-btn-active');
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 实时跟踪`;
-  disableControls(false);
-  setStatus('idle', tr('logs.ready', null, '就绪'));
-}
+let _pendingSSEUrl = '';
 
-async function connectSSE() {
-  if (!_filename || !_isTailMode) return;
+async function _connectSSEWithKey() {
+  if (!_filename) return;
   const key = await adminKey.get();
-  const url = `${ADMIN_API}/logs/tail?filename=${encodeURIComponent(_filename)}&lines=80&app_key=${encodeURIComponent(key)}`;
-  if (_eventSource) _eventSource.close();
+  const url = _pendingSSEUrl + encodeURIComponent(key);
   _eventSource = new EventSource(url);
 
   _eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.error) { showToast(tr('logs.tailError', { error: data.error }, `错误: ${data.error}`), 'error'); stopTailMode(); return; }
-      if (data.type === 'init') {
-        const c = document.getElementById('log-container');
-        c.innerHTML = '';
-        if (data.lines?.length) appendTailLines(data.lines);
-        document.getElementById('log-meta').textContent =
-          tr('logs.liveMeta', { count: data.lines?.length || 0 }, `已加载 ${data.lines?.length || 0} 条`);
-        scrollToBottom();
-      } else if (data.type === 'append' && data.lines?.length) {
-        appendTailLines(data.lines);
-        const metaEl = document.getElementById('log-meta');
-        const m = metaEl.textContent.match(/\d+/);
-        const cur = m ? parseInt(m[0], 10) : 0;
-        metaEl.textContent = tr('logs.liveMeta', { count: cur + data.lines.length }, `已加载 ${cur + data.lines.length} 条`);
+      if (data.error) {
+        console.error('SSE error:', data.error);
+        return;
+      }
+      if (data.type === 'append' && data.lines?.length) {
+        appendSSELines(data.lines);
+        _sseLiveCount += data.lines.length;
+        _totalLines += data.lines.length;
+        updateMeta();
         if (!_userScrolledUp) scrollToBottomSmooth();
-      } else if (data.type === 'error') { stopTailMode(); }
-    } catch (e) { console.error('SSE parse error:', e); }
+      }
+    } catch (e) {
+      console.error('SSE parse error:', e);
+    }
   };
 
   _eventSource.onerror = () => {
-    if (_isTailMode) setTimeout(() => { if (_isTailMode) connectSSE(); }, 2000);
+    if (_filename && !_isSearchMode) {
+      setTimeout(() => { if (_filename && !_isSearchMode) connectSSE(); }, 2000);
+    }
   };
 }
 
-function appendTailLines(lines) {
-  const c = document.getElementById('log-container');
-  const frag = document.createDocumentFragment();
-  lines.forEach(line => {
-    const div = document.createElement('div');
-    const lc = line.level ? `log-level-${line.level}` : '';
-    const rl = line.level ? `level-${line.level}` : '';
-    let content = '';
-    if (line.time && line.level) {
-      content += `<span class="log-time">${_esc(line.time)}</span> | `;
-      content += `<span class="${lc}">${_esc(line.level.padEnd(8))}</span> | `;
-      if (line.logger) content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
-      if (line.location) content += `<span class="log-location">${_esc(line.location)}</span> `;
-      content += `- <span class="log-msg">${_esc(line.message || '')}</span>`;
-    } else { content = _esc(line.raw || line.message || ''); }
-    div.className = `log-line ${rl}`;
-    div.innerHTML = `<span class="log-line-num"></span><span class="log-line-content">${content}</span>`;
-    frag.appendChild(div);
-  });
-  c.appendChild(frag);
+function disconnectSSE() {
+  if (_eventSource) { _eventSource.close(); _eventSource = null; }
 }
 
 /* ── Controls ───────────────────────────────────── */
 
-function disableControls(disabled) {
-  document.getElementById('file-sel').disabled = disabled;
-  document.getElementById('level-sel').disabled = disabled;
-  document.getElementById('keyword-input').disabled = disabled;
-}
-
 function clearFilters() {
-  stopTailMode();
   document.getElementById('keyword-input').value = '';
   document.getElementById('level-sel').value = '';
+  _isSearchMode = false;
+  disconnectSSE();
   resetState();
-  if (_filename) loadLatestLogs();
+  if (_filename) initLogFile();
 }
 
 /* ── Smart scroll ──────────────────────────────── */
@@ -575,15 +564,6 @@ function isNearBottom() {
 function handleScroll() {
   const c = document.getElementById('log-container');
   if (!c) return;
-
-  if (_isTailMode) {
-    if (isNearBottom()) {
-      if (_userScrolledUp) { _userScrolledUp = false; updateScrollHint(); }
-    } else {
-      if (!_userScrolledUp) { _userScrolledUp = true; updateScrollHint(); }
-    }
-    return;
-  }
 
   if (isNearTop() && _hasOlder && !_isLoadingOlder) {
     loadOlderLogs();
@@ -691,7 +671,7 @@ function onKeyDown(e) { if (e.key === 'Escape' && _isFullscreen) { e.preventDefa
   document.getElementById('log-container').addEventListener('scroll', onContainerScroll, { passive: true });
 
   await loadLogFiles();
-  if (_filename) await loadLatestLogs();
+  if (_filename) await initLogFile();
 })();
 </script>
 </body>
