@@ -78,12 +78,28 @@ def _read_lines(
     filename: str,
     offset: int = 0,
     limit: int = 100,
-) -> tuple[list[dict[str, Any]], int]:
-    """Read and parse log lines from file with pagination."""
+    from_end: bool = False,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Read and parse log lines from file with pagination.
+
+    Returns (lines, total_lines, actual_offset).
+    When *from_end* is True the offset is calculated automatically so that
+    the last *limit* lines are returned.
+    """
     d = log_dir()
     filepath = d / filename
     if not filepath.exists() or not filepath.is_file():
-        return [], 0
+        return [], 0, 0
+
+    if from_end:
+        total_lines = 0
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                for _ in f:
+                    total_lines += 1
+        except OSError:
+            return [], 0, 0
+        offset = max(0, total_lines - limit)
 
     lines = []
     total_lines = 0
@@ -100,9 +116,9 @@ def _read_lines(
                     parsed["_line_number"] = total_lines
                     lines.append(parsed)
     except OSError:
-        return [], 0
+        return [], 0, 0
 
-    return lines, total_lines
+    return lines, total_lines, offset
 
 
 def _search_logs(
@@ -307,14 +323,15 @@ async def read_logs(
     filename: str = Query(..., description="Log file name"),
     offset: int = Query(0, ge=0, description="Line offset"),
     limit: int = Query(100, ge=1, le=1000, description="Lines per page"),
+    from_end: bool = Query(False, description="Load from end of file"),
 ):
     """Read log lines with pagination."""
-    lines, total = _read_lines(filename, offset, limit)
+    lines, total, actual_offset = _read_lines(filename, offset, limit, from_end=from_end)
     return {
         "status": "success",
         "filename": filename,
         "total": total,
-        "offset": offset,
+        "offset": actual_offset,
         "limit": limit,
         "lines": lines,
     }
