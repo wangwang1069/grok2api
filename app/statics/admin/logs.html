@@ -8,26 +8,13 @@
   <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
   <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
   <style>
-    body { background: #FAF9F5 }
+    body { background:#FAF9F5 }
+    body.log-fullscreen { overflow:hidden }
 
     .page-hd   { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
     .page-title{ font-size:22px; font-weight:700; line-height:1.2 }
     .page-sub  { font-size:13px; color:var(--fg-muted); margin-top:5px }
     .page-actions { display:flex; gap:8px; align-items:center; flex-shrink:0 }
-
-    .section-head {
-      display:flex;
-      align-items:baseline;
-      justify-content:space-between;
-      gap:12px;
-      margin:28px 0 14px;
-    }
-    .section-title {
-      font-size:13px;
-      font-weight:600;
-      color:#222;
-      letter-spacing:.01em;
-    }
 
     /* Toolbar */
     .log-toolbar {
@@ -106,6 +93,17 @@
       border-radius:12px;
       overflow:hidden;
       border:1px solid #f0f0f0;
+      transition:all .25s ease;
+      position:relative;
+    }
+    .log-viewer.is-fullscreen {
+      position:fixed;
+      inset:0;
+      z-index:9999;
+      border-radius:0;
+      border:none;
+      display:flex;
+      flex-direction:column;
     }
     .log-header {
       display:flex;
@@ -116,24 +114,37 @@
       border-bottom:1px solid #f0f0f0;
       gap:12px;
       flex-wrap:wrap;
+      flex-shrink:0;
     }
     .log-info { font-size:12px; color:#8a8a8a; display:flex; align-items:center; gap:12px }
     .log-info-item { display:flex; align-items:center; gap:4px }
     .log-actions { display:flex; align-items:center; gap:6px }
+    .log-body-wrap {
+      position:relative;
+      flex:1;
+      min-height:0;
+      overflow:hidden;
+    }
     .log-body {
       height:calc(100vh - 320px);
       min-height:400px;
-      overflow:auto;
+      overflow-y:auto;
+      overflow-x:hidden;
       font-family:'Geist Mono','SF Mono','Consolas','Monaco',monospace;
       font-size:12px;
-      line-height:1.6;
+      line-height:1.65;
       background:#1e1e1e;
       color:#d4d4d4;
       padding:0;
+      scroll-behavior:smooth;
+    }
+    .log-viewer.is-fullscreen .log-body {
+      height:100%;
+      min-height:0;
     }
     .log-line {
       display:flex;
-      padding:2px 12px;
+      padding:1px 12px;
       border-left:3px solid transparent;
       transition:background .08s;
       white-space:pre-wrap;
@@ -142,12 +153,13 @@
     .log-line:hover { background:rgba(255,255,255,.04) }
     .log-line-num {
       flex:0 0 auto;
-      width:50px;
+      width:52px;
       text-align:right;
       padding-right:12px;
-      color:#6a6a6a;
+      color:#555;
       user-select:none;
       font-size:11px;
+      opacity:.7;
     }
     .log-line-content {
       flex:1;
@@ -175,35 +187,6 @@
       background:rgba(220,220,170,.04);
     }
 
-    /* Pagination */
-    .pagi-bar {
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      padding:10px 16px;
-      background:#fafafa;
-      border-top:1px solid #f0f0f0;
-      font-size:12px;
-      color:#8a8a8a;
-    }
-    .pagi-controls { display:flex; align-items:center; gap:6px }
-    .pagi-btn  {
-      width:28px;
-      height:28px;
-      border-radius:6px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      color:inherit;
-      transition:background .1s;
-      cursor:pointer;
-      border:none;
-      background:none;
-    }
-    .pagi-btn:hover { background:var(--border) }
-    .pagi-btn:disabled { opacity:.35; pointer-events:none }
-    .pagi-page { min-width:0; padding:0 8px; font-variant-numeric:tabular-nums; white-space:nowrap }
-
     /* Status indicator */
     .status-dot {
       width:8px;
@@ -219,15 +202,74 @@
       50% { opacity:.4 }
     }
 
-    /* Empty state */
+    /* Empty / loading state */
     .log-empty {
       display:flex;
       align-items:center;
       justify-content:center;
       height:100%;
+      min-height:200px;
       color:#666;
       font-size:13px;
     }
+
+    /* Auto-scroll indicator */
+    .autoscroll-hint {
+      position:absolute;
+      bottom:16px;
+      right:20px;
+      z-index:10;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      height:32px;
+      padding:0 14px;
+      border-radius:999px;
+      background:rgba(17,17,17,.88);
+      color:#fff;
+      font-size:12px;
+      font-weight:600;
+      cursor:pointer;
+      box-shadow:0 4px 16px rgba(0,0,0,.25);
+      backdrop-filter:blur(8px);
+      border:1px solid rgba(255,255,255,.08);
+      transition:opacity .25s, transform .25s;
+      opacity:0;
+      transform:translateY(8px);
+      pointer-events:none;
+    }
+    .autoscroll-hint.visible {
+      opacity:1;
+      transform:translateY(0);
+      pointer-events:auto;
+    }
+    .autoscroll-hint:hover { background:rgba(30,30,30,.95) }
+    .autoscroll-hint svg { width:14px; height:14px; flex-shrink:0 }
+
+    /* Load more sentinel */
+    .load-sentinel {
+      height:1px;
+      width:100%;
+    }
+    .loading-more {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      color:#888;
+      font-size:12px;
+      gap:8px;
+    }
+    .loading-more::before {
+      content:'';
+      width:16px;
+      height:16px;
+      border:2px solid #444;
+      border-top-color:#888;
+      border-radius:50%;
+      animation:spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg) } }
 
     /* Responsive */
     @media (max-width: 840px) {
@@ -241,9 +283,9 @@
 
 <div id="admin-header" data-active="/admin/logs"></div>
 
-<main class="admin-main" style="padding-bottom:60px">
+<main class="admin-main" id="app-main" style="padding-bottom:60px">
 
-  <div class="page-hd">
+  <div class="page-hd" id="page-header">
     <div>
       <div class="page-title" data-i18n="logs.pageHeading">日志查看</div>
       <div class="page-sub" data-i18n="logs.pageSubtitle">实时查询和检索运行时日志，支持关键词搜索、级别过滤和时间范围筛选。</div>
@@ -253,10 +295,14 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
         自动滚动
       </button>
+      <button class="toolbar-btn" id="btn-fullscreen" onclick="toggleFullscreen()" title="全屏查看">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        全屏
+      </button>
     </div>
   </div>
 
-  <div class="log-toolbar">
+  <div class="log-toolbar" id="log-toolbar">
     <div class="toolbar-group">
       <span class="toolbar-label">文件</span>
       <select class="toolbar-select" id="file-sel" onchange="onFileChange()" style="min-width:220px"></select>
@@ -296,7 +342,7 @@
     </button>
   </div>
 
-  <div class="log-viewer">
+  <div class="log-viewer" id="log-viewer">
     <div class="log-header">
       <div class="log-info">
         <span class="log-info-item">
@@ -306,28 +352,22 @@
         <span class="log-info-item" id="log-meta"></span>
       </div>
       <div class="log-actions">
-        <button class="pagi-btn" onclick="prevPage()" id="btn-prev" disabled title="上一页">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <span class="pagi-page" id="pagi-page">第 0 / 0 页</span>
-        <button class="pagi-btn" onclick="nextPage()" id="btn-next" disabled title="下一页">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <button class="toolbar-btn" id="btn-fs-close" onclick="toggleFullscreen()" style="display:none" title="退出全屏 (Esc)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 0-2 2v3"/><path d="M3 16h3a2 2 0 0 0 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+          退出全屏
         </button>
       </div>
     </div>
 
-    <div class="log-body" id="log-container">
-      <div class="log-empty" id="log-empty">请选择日志文件或点击实时跟踪</div>
-    </div>
-
-    <div class="pagi-bar" id="pagi-bar" style="display:none">
-      <span>每页显示：</span>
-      <select class="toolbar-select" id="page-size-sel" onchange="changePageSize(this.value)" style="height:26px; padding:0 24px 0 6px; font-size:12px">
-        <option value="50">50 行</option>
-        <option value="100" selected>100 行</option>
-        <option value="200">200 行</option>
-        <option value="500">500 行</option>
-      </select>
+    <div class="log-body-wrap">
+      <div class="log-body" id="log-container">
+        <div class="log-empty" id="log-empty">请选择日志文件或点击实时跟踪</div>
+        <div class="load-sentinel" id="sentinel"></div>
+      </div>
+      <div class="autoscroll-hint" id="autoscroll-hint" onclick="resumeAutoScrollAndBottom()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        回到最新
+      </div>
     </div>
   </div>
 
@@ -339,16 +379,22 @@
 <script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
 <script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
 <script>
-const PAGE_SIZE_KEY = 'admin.logs.page_size';
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
+const BATCH_SIZE = 150;
 
 let _filename = '';
-let _page = 1;
-let _pageSize = loadSavedPageSize();
-let _total = 0;
+let _offset = 0;
+let _totalLines = 0;
+let _loadedCount = 0;
+let _hasMore = true;
+let _isLoadingMore = false;
 let _isTailMode = false;
 let _autoScroll = true;
+let _userScrolledUp = false;
 let _eventSource = null;
+let _isFullscreen = false;
+
+const _scrollRAF = { id: null };
+const SCROLL_THRESHOLD = 120;
 
 function tr(key, params, fallback) {
   const value = t(key, params);
@@ -357,11 +403,6 @@ function tr(key, params, fallback) {
 
 function waitI18n() {
   return new Promise((resolve) => I18n.onReady(resolve));
-}
-
-function loadSavedPageSize() {
-  const raw = Number(localStorage.getItem(PAGE_SIZE_KEY));
-  return PAGE_SIZE_OPTIONS.includes(raw) ? raw : 100;
 }
 
 function _esc(value) {
@@ -381,6 +422,8 @@ async function _api(method, path, body) {
   }
   return r.json();
 }
+
+/* ── File list ─────────────────────────────────── */
 
 async function loadLogFiles() {
   try {
@@ -407,13 +450,15 @@ async function loadLogFiles() {
   }
 }
 
+/* ── Load / Search ─────────────────────────────── */
+
 async function onFileChange() {
   const sel = document.getElementById('file-sel');
   _filename = sel.value;
   stopTailMode();
-  _page = 1;
+  resetInfiniteScroll();
   if (_filename) {
-    await loadLogs();
+    await loadLogs(true);
   } else {
     renderEmpty('请选择日志文件');
   }
@@ -421,13 +466,24 @@ async function onFileChange() {
 
 async function onSearch() {
   stopTailMode();
-  _page = 1;
-  await loadLogs();
+  resetInfiniteScroll();
+  await loadLogs(true);
 }
 
-async function loadLogs() {
+function resetInfiniteScroll() {
+  _offset = 0;
+  _loadedCount = 0;
+  _hasMore = true;
+  _isLoadingMore = false;
+  _autoScroll = true;
+  _userScrolledUp = false;
+  updateAutoScrollBtn();
+  updateScrollHint();
+}
+
+async function loadLogs(isFirstLoad = false) {
   if (!_filename) return;
-  setStatus('loading', tr('logs.loading', null, '加载中…'));
+  if (isFirstLoad) setStatus('loading', tr('logs.loading', null, '加载中…'));
 
   try {
     const keyword = document.getElementById('keyword-input').value.trim();
@@ -435,60 +491,141 @@ async function loadLogs() {
 
     let d;
     if (keyword || level) {
-      d = await _api('GET', `/logs/search?filename=${encodeURIComponent(_filename)}&keyword=${encodeURIComponent(keyword)}&level=${encodeURIComponent(level)}&offset=${(_page - 1) * _pageSize}&limit=${_pageSize}`);
+      d = await _api('GET', `/logs/search?filename=${encodeURIComponent(_filename)}&keyword=${encodeURIComponent(keyword)}&level=${encodeURIComponent(level)}&offset=${_offset}&limit=${BATCH_SIZE}`);
     } else {
-      d = await _api('GET', `/logs/read?filename=${encodeURIComponent(_filename)}&offset=${(_page - 1) * _pageSize}&limit=${_pageSize}`);
+      d = await _api('GET', `/logs/read?filename=${encodeURIComponent(_filename)}&offset=${_offset}&limit=${BATCH_SIZE}`);
     }
 
-    _total = d.total || 0;
-    renderLogs(d.lines || []);
-    updatePagination();
-    setStatus('ready', tr('logs.ready', null, '就绪'));
+    const lines = d.lines || [];
+    _totalLines = d.total || 0;
+
+    if (isFirstLoad) {
+      renderLogs(lines);
+    } else {
+      appendLogs(lines);
+    }
+
+    _loadedCount += lines.length;
+    _offset = _loadedCount;
+    _hasMore = _loadedCount < _totalLines;
+    _isLoadingMore = false;
+    removeLoadingIndicator();
+
+    updateMeta();
+
+    if (_autoScroll && !isFirstLoad) {
+      scrollToBottomSmooth();
+    } else if (isFirstLoad && _autoScroll) {
+      scrollToBottom();
+    }
+
+    if (isFirstLoad) setStatus('ready', tr('logs.ready', null, '就绪'));
   } catch (e) {
     console.error('Failed to load logs:', e);
-    renderEmpty(tr('logs.loadError', { message: e.message }, `加载错误: ${e.message}`));
-    setStatus('error', tr('logs.error', null, '错误'));
+    if (isFirstLoad) {
+      renderEmpty(tr('logs.loadError', { message: e.message }, `加载错误: ${e.message}`));
+      setStatus('error', tr('logs.error', null, '错误'));
+    }
+    _isLoadingMore = false;
+    removeLoadingIndicator();
   }
 }
 
+async function loadMore() {
+  if (!_hasMore || _isLoadingMore || !_filename || _isTailMode) return;
+  _isLoadingMore = true;
+  showLoadingIndicator();
+  await loadLogs(false);
+}
+
+/* ── Render ────────────────────────────────────── */
+
+function buildLineHTML(line) {
+  const num = line._line_number || '';
+  const levelClass = line.level ? `log-level-${line.level}` : '';
+  const rowLevelClass = line.level ? `level-${line.level}` : '';
+
+  let content = '';
+  if (line.time && line.level) {
+    content += `<span class="log-time">${_esc(line.time)}</span> | `;
+    content += `<span class="${levelClass}">${_esc(line.level.padEnd(8))}</span> | `;
+    if (line.logger) content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
+    if (line.location) content += `<span class="log-location">${_esc(line.location)}</span> `;
+    content += `- <span class="log-msg">${highlightKeyword(_esc(line.message || ''))}</span>`;
+  } else {
+    content = highlightKeyword(_esc(line.raw || line.message || ''));
+  }
+
+  return `<div class="log-line ${rowLevelClass}"><span class="log-line-num">${num}</span><span class="log-line-content">${content}</span></div>`;
+}
+
 function renderLogs(lines) {
-  const container = document.getElementById('log-container');
+  const container = getContainerInner();
   if (!lines.length) {
     container.innerHTML = `<div class="log-empty">${_esc(tr('logs.noResults', null, '无匹配结果'))}</div>`;
-    document.getElementById('log-meta').textContent = '';
+    ensureSentinel();
+    updateMetaEmpty();
     return;
   }
 
-  const html = lines.map((line) => {
-    const num = line._line_number || '';
-    const levelClass = line.level ? `log-level-${line.level}` : '';
-    const rowLevelClass = line.level ? `level-${line.level}` : '';
+  container.innerHTML = lines.map(buildLineHTML).join('') + '<div class="load-sentinel" id="sentinel"></div>';
+  updateMeta();
+}
 
-    let content = '';
-    if (line.time && line.level) {
-      content += `<span class="log-time">${_esc(line.time)}</span> | `;
-      content += `<span class="${levelClass}">${_esc(line.level.padEnd(8))}</span> | `;
-      if (line.logger) {
-        content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
-      }
-      if (line.location) {
-        content += `<span class="log-location">${_esc(line.location)}</span> `;
-      }
-      content += `- <span class="log-msg">${highlightKeyword(_esc(line.message || ''))}</span>`;
-    } else {
-      content = highlightKeyword(_esc(line.raw || line.message || ''));
-    }
+function appendLogs(lines) {
+  if (!lines.length) return;
+  const container = getContainerInner();
+  const sentinel = document.getElementById('sentinel');
 
-    return `<div class="log-line ${rowLevelClass}"><span class="log-line-num">${num}</span><span class="log-line-content">${content}</span></div>`;
-  }).join('');
+  const fragment = document.createDocumentFragment();
+  lines.forEach((line) => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildLineHTML(line);
+    fragment.appendChild(tmp.firstElementChild);
+  });
 
-  container.innerHTML = html;
-  document.getElementById('log-meta').textContent =
-    tr('logs.logMeta', { total: _total, current: lines.length }, `共 ${_total} 条，当前 ${lines.length} 条`);
-
-  if (_autoScroll) {
-    scrollToBottom();
+  if (sentinel) {
+    sentinel.parentNode.insertBefore(fragment, sentinel);
+  } else {
+    container.appendChild(fragment);
+    ensureSentinel();
   }
+}
+
+function getContainerInner() {
+  const c = document.getElementById('log-container');
+  return c;
+}
+
+function ensureSentinel() {
+  const c = document.getElementById('log-container');
+  if (!document.getElementById('sentinel')) {
+    const s = document.createElement('div');
+    s.className = 'load-sentinel';
+    s.id = 'sentinel';
+    c.appendChild(s);
+  }
+}
+
+function renderEmpty(message) {
+  const c = document.getElementById('log-container');
+  c.innerHTML = `<div class="log-empty">${_esc(message)}</div><div class="load-sentinel" id="sentinel"></div>`;
+  updateMetaEmpty();
+}
+
+function showLoadingIndicator() {
+  removeLoadingIndicator();
+  const c = document.getElementById('log-container');
+  const el = document.createElement('div');
+  el.className = 'loading-more';
+  el.id = 'loading-more-el';
+  el.textContent = '加载更多…';
+  c.appendChild(el);
+}
+
+function removeLoadingIndicator() {
+  const el = document.getElementById('loading-more-el');
+  if (el) el.remove();
 }
 
 function highlightKeyword(text) {
@@ -502,50 +639,21 @@ function _escRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function renderEmpty(message) {
-  document.getElementById('log-container').innerHTML = `<div class="log-empty">${_esc(message)}</div>`;
+/* ── Meta info ──────────────────────────────────── */
+
+function updateMeta() {
+  document.getElementById('log-meta').textContent =
+    tr('logs.logMeta', { total: _totalLines, loaded: _loadedCount }, `共 ${_totalLines} 条，已加载 ${_loadedCount} 条`);
+}
+
+function updateMetaEmpty() {
   document.getElementById('log-meta').textContent = '';
-  document.getElementById('pagi-bar').style.display = 'none';
 }
 
-function updatePagination() {
-  const pages = Math.max(1, Math.ceil(_total / _pageSize));
-  document.getElementById('pagi-page').textContent =
-    tr('logs.pageIndicator', { current: _page, total: pages }, `第 ${_page} / ${pages} 页`);
-  document.getElementById('btn-prev').disabled = _page <= 1;
-  document.getElementById('btn-next').disabled = _page >= pages;
-  document.getElementById('pagi-bar').style.display = _total > 0 ? '' : 'none';
-}
-
-function prevPage() {
-  if (_page > 1) {
-    _page -= 1;
-    loadLogs();
-  }
-}
-
-function nextPage() {
-  const pages = Math.max(1, Math.ceil(_total / _pageSize));
-  if (_page < pages) {
-    _page += 1;
-    loadLogs();
-  }
-}
-
-function changePageSize(value) {
-  const next = Number(value);
-  _pageSize = PAGE_SIZE_OPTIONS.includes(next) ? next : 100;
-  localStorage.setItem(PAGE_SIZE_KEY, String(_pageSize));
-  _page = 1;
-  loadLogs();
-}
+/* ── Tail mode (SSE) ────────────────────────────── */
 
 function toggleTailMode() {
-  if (_isTailMode) {
-    stopTailMode();
-  } else {
-    startTailMode();
-  }
+  if (_isTailMode) { stopTailMode(); } else { startTailMode(); }
 }
 
 function startTailMode() {
@@ -554,6 +662,8 @@ function startTailMode() {
     return;
   }
   _isTailMode = true;
+  _autoScroll = true;
+  _userScrolledUp = false;
   const btn = document.getElementById('btn-tail');
   btn.classList.add('toolbar-btn-active');
   btn.innerHTML = `
@@ -562,15 +672,14 @@ function startTailMode() {
   `;
   disableControls(true);
   setStatus('live', tr('logs.liveMode', null, '实时跟踪中'));
+  updateAutoScrollBtn();
+  updateScrollHint();
   connectSSE();
 }
 
 function stopTailMode() {
   _isTailMode = false;
-  if (_eventSource) {
-    _eventSource.close();
-    _eventSource = null;
-  }
+  if (_eventSource) { _eventSource.close(); _eventSource = null; }
   const btn = document.getElementById('btn-tail');
   btn.classList.remove('toolbar-btn-active');
   btn.innerHTML = `
@@ -583,13 +692,9 @@ function stopTailMode() {
 
 async function connectSSE() {
   if (!_filename || !_isTailMode) return;
-
   const key = await adminKey.get();
-  const url = `${ADMIN_API}/logs/tail?filename=${encodeURIComponent(_filename)}&lines=100&app_key=${encodeURIComponent(key)}`;
-
-  if (_eventSource) {
-    _eventSource.close();
-  }
+  const url = `${ADMIN_API}/logs/tail?filename=${encodeURIComponent(_filename)}&lines=80&app_key=${encodeURIComponent(key)}`;
+  if (_eventSource) _eventSource.close();
 
   _eventSource = new EventSource(url);
 
@@ -603,20 +708,22 @@ async function connectSSE() {
         return;
       }
       if (data.type === 'init') {
-        const container = document.getElementById('log-container');
+        const container = getContainerInner();
         container.innerHTML = '';
-        if (data.lines && data.lines.length) {
-          appendLogLines(data.lines, true);
-        }
+        if (data.lines?.length) appendLogLinesSSE(data.lines);
         document.getElementById('log-meta').textContent =
           tr('logs.liveMeta', { count: data.lines?.length || 0 }, `已加载 ${data.lines?.length || 0} 条`);
-      } else if (data.type === 'append') {
-        appendLogLines(data.lines || [], false);
+        if (_autoScroll) scrollToBottom();
+      } else if (data.type === 'append' && data.lines?.length) {
+        appendLogLinesSSE(data.lines);
         const metaEl = document.getElementById('log-meta');
-        const currentMatch = metaEl.textContent.match(/\d+/);
-        const current = currentMatch ? parseInt(currentMatch[0], 10) : 0;
+        const m = metaEl.textContent.match(/\d+/);
+        const cur = m ? parseInt(m[0], 10) : 0;
         metaEl.textContent =
-          tr('logs.liveMeta', { count: current + (data.lines?.length || 0) }, `已加载 ${current + (data.lines?.length || 0)} 条`);
+          tr('logs.liveMeta', { count: cur + data.lines.length }, `已加载 ${cur + data.lines.length} 条`);
+        if (_autoScroll) scrollToBottomSmooth();
+      } else if (data.type === 'error') {
+        stopTailMode();
       }
     } catch (e) {
       console.error('Failed to parse SSE message:', e);
@@ -624,100 +731,209 @@ async function connectSSE() {
   };
 
   _eventSource.onerror = () => {
-    if (_isTailMode) {
-      setTimeout(() => {
-        if (_isTailMode) connectSSE();
-      }, 2000);
-    }
+    if (_isTailMode) setTimeout(() => { if (_isTailMode) connectSSE(); }, 2000);
   };
 }
 
-function appendLogLines(lines, clear) {
-  const container = document.getElementById('log-container');
-  if (clear) container.innerHTML = '';
-
+function appendLogLinesSSE(lines) {
+  const container = getContainerInner();
   const fragment = document.createDocumentFragment();
   lines.forEach((line) => {
     const div = document.createElement('div');
-    const levelClass = line.level ? `log-level-${line.level}` : '';
-    const rowLevelClass = line.level ? `level-${line.level}` : '';
+    const lc = line.level ? `log-level-${line.level}` : '';
+    const rl = line.level ? `level-${line.level}` : '';
 
     let content = '';
     if (line.time && line.level) {
       content += `<span class="log-time">${_esc(line.time)}</span> | `;
-      content += `<span class="${levelClass}">${_esc(line.level.padEnd(8))}</span> | `;
-      if (line.logger) {
-        content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
-      }
-      if (line.location) {
-        content += `<span class="log-location">${_esc(line.location)}</span> `;
-      }
+      content += `<span class="${lc}">${_esc(line.level.padEnd(8))}</span> | `;
+      if (line.logger) content += `<span class="log-logger">${_esc(line.logger)}</span>:`;
+      if (line.location) content += `<span class="log-location">${_esc(line.location)}</span> `;
       content += `- <span class="log-msg">${_esc(line.message || '')}</span>`;
     } else {
       content = _esc(line.raw || line.message || '');
     }
 
-    div.className = `log-line ${rowLevelClass}`;
+    div.className = `log-line ${rl}`;
     div.innerHTML = `<span class="log-line-num"></span><span class="log-line-content">${content}</span>`;
     fragment.appendChild(div);
   });
-
   container.appendChild(fragment);
-
-  if (_autoScroll) {
-    scrollToBottom();
-  }
 }
+
+/* ── Controls ───────────────────────────────────── */
 
 function disableControls(disabled) {
   document.getElementById('file-sel').disabled = disabled;
   document.getElementById('level-sel').disabled = disabled;
   document.getElementById('keyword-input').disabled = disabled;
-  document.getElementById('btn-prev').disabled = disabled;
-  document.getElementById('btn-next').disabled = disabled;
 }
 
 function clearFilters() {
   stopTailMode();
   document.getElementById('keyword-input').value = '';
   document.getElementById('level-sel').value = '';
-  _page = 1;
-  if (_filename) {
-    loadLogs();
-  }
+  resetInfiniteScroll();
+  if (_filename) loadLogs(true);
 }
+
+/* ── Auto-scroll (smart) ────────────────────────── */
 
 function toggleAutoScroll() {
   _autoScroll = !_autoScroll;
+  if (_autoScroll) { _userScrolledUp = false; }
+  updateAutoScrollBtn();
+  updateScrollHint();
+  if (_autoScroll) scrollToBottomSmooth();
+}
+
+function updateAutoScrollBtn() {
   const btn = document.getElementById('btn-auto-scroll');
   btn.classList.toggle('toolbar-btn-active', _autoScroll);
-  if (_autoScroll) {
-    scrollToBottom();
+}
+
+function updateScrollHint() {
+  const hint = document.getElementById('autoscroll-hint');
+  const shouldShow = !_autoScroll || _userScrolledUp;
+  hint.classList.toggle('visible', shouldShow);
+}
+
+function resumeAutoScrollAndBottom() {
+  _autoScroll = true;
+  _userScrolledUp = false;
+  updateAutoScrollBtn();
+  updateScrollHint();
+  scrollToBottomSmooth();
+}
+
+function isNearBottom() {
+  const c = document.getElementById('log-container');
+  if (!c) return true;
+  return c.scrollHeight - c.scrollTop - c.clientHeight < SCROLL_THRESHOLD;
+}
+
+function handleScroll() {
+  if (_isTailMode) {
+    if (!isNearBottom()) {
+      if (!_userScrolledUp) {
+        _userScrolledUp = true;
+        updateScrollHint();
+      }
+    } else {
+      if (_userScrolledUp) {
+        _userScrolledUp = false;
+        _autoScroll = true;
+        updateAutoScrollBtn();
+        updateScrollHint();
+      }
+    }
+    return;
+  }
+
+  if (isNearBottom()) {
+    if (_userScrolledUp) {
+      _userScrolledUp = false;
+      _autoScroll = true;
+      updateAutoScrollBtn();
+      updateScrollHint();
+    }
+    if (_hasMore && !_isLoadingMore) loadMore();
+  } else {
+    if (!_userScrolledUp) {
+      _userScrolledUp = true;
+      updateScrollHint();
+    }
   }
 }
 
+let _scrollTicking = false;
+function onContainerScroll() {
+  if (!_scrollTicking) {
+    _scrollTicking = true;
+    requestAnimationFrame(() => {
+      handleScroll();
+      _scrollTicking = false;
+    });
+  }
+}
+
+/* ── Scroll helpers ────────────────────────────── */
+
 function scrollToBottom() {
-  const container = document.getElementById('log-container');
-  requestAnimationFrame(() => {
-    container.scrollTop = container.scrollHeight;
+  cancelScrollRAF();
+  const c = document.getElementById('log-container');
+  if (!c) return;
+  _scrollRAF.id = requestAnimationFrame(() => {
+    c.scrollTop = c.scrollHeight;
+    _scrollRAF.id = null;
   });
 }
+
+function scrollToBottomSmooth() {
+  cancelScrollRAF();
+  const c = document.getElementById('log-container');
+  if (!c) return;
+  _scrollRAF.id = requestAnimationFrame(() => {
+    c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+    _scrollRAF.id = null;
+  });
+}
+
+function cancelScrollRAF() {
+  if (_scrollRAF.id) { cancelAnimationFrame(_scrollRAF.id); _scrollRAF.id = null; }
+}
+
+/* ── Fullscreen ─────────────────────────────────── */
+
+function toggleFullscreen() {
+  _isFullscreen = !_isFullscreen;
+  const viewer = document.getElementById('log-viewer');
+  const body = document.body;
+  const appMain = document.getElementById('app-main');
+  const pageHeader = document.getElementById('page-header');
+  const toolbar = document.getElementById('log-toolbar');
+  const fsClose = document.getElementById('btn-fs-close');
+  const fsBtn = document.getElementById('btn-fullscreen');
+
+  viewer.classList.toggle('is-fullscreen', _isFullscreen);
+  body.classList.toggle('log-fullscreen', _isFullscreen);
+
+  if (_isFullscreen) {
+    pageHeader.style.display = 'none';
+    toolbar.style.display = 'none';
+    fsClose.style.display = '';
+    fsBtn.style.display = 'none';
+  } else {
+    pageHeader.style.display = '';
+    toolbar.style.display = '';
+    fsClose.style.display = 'none';
+    fsBtn.style.display = '';
+  }
+
+  const btnLabel = _isFullscreen
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg> 退出全屏'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg> 全屏';
+  fsBtn.innerHTML = btnLabel;
+
+  setTimeout(() => {
+    if (_autoScroll) scrollToBottom();
+  }, _isFullscreen ? 300 : 50);
+}
+
+/* ── Status ─────────────────────────────────────── */
 
 function setStatus(state, text) {
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
   dot.className = 'status-dot';
-  if (state === 'live') {
-    dot.classList.add('status-dot-live');
-  } else if (state === 'loading') {
-    dot.style.background = '#f59e0b';
-  } else if (state === 'error') {
-    dot.style.background = '#ef4444';
-  } else {
-    dot.classList.add('status-dot-idle');
-  }
+  if (state === 'live') dot.classList.add('status-dot-live');
+  else if (state === 'loading') dot.style.background = '#f59e0b';
+  else if (state === 'error') dot.style.background = '#ef4444';
+  else dot.classList.add('status-dot-idle');
   txt.textContent = text;
 }
+
+/* ── Utils ──────────────────────────────────────── */
 
 function _fmtBytes(bytes) {
   if (!bytes) return '0 B';
@@ -728,31 +944,38 @@ function _fmtBytes(bytes) {
 
 function applyLogsI18n() {
   document.title = tr('logs.pageTitle', null, 'Grok2API - 日志查看');
-  const fileSel = document.getElementById('file-sel');
-  if (fileSel.value) {
-    const opts = fileSel.querySelectorAll('option');
-    opts.forEach((opt) => {
-      if (opt.value === _filename) {
-        fileSel.value = _filename;
-      }
-    });
+}
+
+/* ── Keyboard shortcuts ─────────────────────────── */
+
+function onKeyDown(e) {
+  if (e.key === 'Escape' && _isFullscreen) {
+    e.preventDefault();
+    toggleFullscreen();
   }
 }
+
+/* ── Init ──────────────────────────────────────── */
 
 (async () => {
   await waitI18n();
   applyLogsI18n();
   await renderAdminHeader?.();
   await renderSiteFooter?.();
+
   const key = await adminKey.get();
   if (!key || !await verifyKey(ADMIN_API + '/verify', key).catch(() => false)) {
     location.href = '/admin/login';
     return;
   }
+
+  document.addEventListener('keydown', onKeyDown);
+  document.getElementById('log-container').addEventListener('scroll', onContainerScroll, { passive: true });
+
+  updateAutoScrollBtn();
+
   await loadLogFiles();
-  if (_filename) {
-    await loadLogs();
-  }
+  if (_filename) await loadLogs(true);
 })();
 </script>
 </body>

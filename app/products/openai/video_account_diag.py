@@ -26,7 +26,7 @@ Usage (minimal change to *video.py*)::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.platform.logging.logger import logger
 from app.dataplane.account.selector import (
@@ -110,7 +110,7 @@ def _snapshot_account(
         "idx": idx,
         "token": _mask_token(token),
         "pool": _pool_name(pool_id),
-        "status": _status_name(status),
+        "status": _status_name(status_id),
         "target_mode_quota": quota,
         "target_mode_total": total,
         "window_sec": window,
@@ -242,36 +242,64 @@ async def reserve_and_diagnose(
     pool_names = ", ".join(_pool_name(p) for p in pools_tried)
 
     logger.info(
-        "video acct select: job={} model={} mode={} pools=[{}] strategy={} excluded={}",
+        "video acct select: job={} ENTER model={} mode={} pools=[{}] strategy={} excluded_tokens={}",
         job_id,
         spec.model_name,
         _mode_name(mode_id),
         pool_names,
         strategy,
-        len(exclude_tokens) if exclude_tokens else 0,
+        [_mask_token(t) for t in (exclude_tokens or [])],
     )
 
     if table is None or table.size == 0:
         logger.error(
-            "video acct select: job={} FAIL table_empty table_is_none={}",
+            "video acct select: job={} EARLY_RETURN table_is_none={} table_size=0={}",
             job_id,
             table is None,
+            table.size == 0 if table else True,
         )
-        return await directory.reserve_any(
+        result = await directory.reserve_any(
             pool_candidates=pool_candidates,
             now_s_override=now_s_val,
         )
+        logger.info(
+            "video acct select: job={} RESERVE_ANY_RESULT (empty_table) result_is_none={}",
+            job_id,
+            result is None,
+        )
+        return result
+
+    logger.info(
+        "video acct select: job={} table_size={} scanning_pools={}",
+        job_id,
+        table.size,
+        pool_names,
+    )
 
     all_candidates: list[dict[str, Any]] = []
     reject_reasons: dict[int, list[str]] = {}
+    pool_candidate_counts: dict[int, int] = {}
 
     for pool_id in pools_tried:
         cands = _pool_union(table, pool_id)
+        pool_candidate_counts[pool_id] = len(cands)
+
         if not cands:
-            reject_reasons.setdefault(-1, []).append(
-                f"pool={_pool_name(pool_id)}: no active accounts in mode_available"
+            reason = f"pool={_pool_name(pool_id)}: no active accounts in mode_available"
+            reject_reasons.setdefault(-1, []).append(reason)
+            logger.warning(
+                "video acct select: job={} pool={} EMPTY no_candidates_in_mode_available",
+                job_id,
+                _pool_name(pool_id),
             )
             continue
+
+        logger.info(
+            "video acct select: job={} pool={} raw_candidates={}",
+            job_id,
+            _pool_name(pool_id),
+            len(cands),
+        )
 
         for idx in cands:
             snap = _snapshot_account(table, idx, mode_id, now_s_val)
@@ -281,6 +309,14 @@ async def reserve_and_diagnose(
             status = int(table.status_by_idx[idx])
             if status != int(StatusId.ACTIVE):
                 reasons.append(f"status={snap['status']}")
+                logger.info(
+                    "video acct select: job={} pool={} #{} token={} REJECT status={}",
+                    job_id,
+                    _pool_name(pool_id),
+                    idx,
+                    snap["token"],
+                    snap["status"],
+                )
 
             if strategy == "random":
                 max_inflight = 8
@@ -296,15 +332,64 @@ async def reserve_and_diagnose(
                     reasons.append(
                         f"cooling (remaining {snap['cooling_remaining_s']}s)"
                     )
+                    logger.info(
+                        "video acct select: job={} pool={} #{} token={} REJECT cooling remaining={}s until_epoch={}",
+                        job_id,
+                        _pool_name(pool_id),
+                        idx,
+                        snap["token"],
+                        snap["cooling_remaining_s"],
+                        snap["cooling_until_s"],
+                    )
                 if inflight >= max_inflight:
                     reasons.append(f"inflight={inflight}>={max_inflight}")
+                    logger.info(
+                        "video acct select: job={} pool={} #{} token={} REJECT inflight={}/{} max={}",
+                        job_id,
+                        _pool_name(pool_id),
+                        idx,
+                        snap["token"],
+                        inflight,
+                        max_inflight,
+                    )
             else:
                 quota = int(table._quota_col(mode_id)[idx])
                 if quota <= 0:
                     reasons.append(f"quota={quota}")
+                    logger.info(
+                        "video acct select: job={} pool={} #{} token={} DIAG_QUOTA_ZERO quota={} "
+                        "(note: reserve_any uses _best_no_quota which ignores per-mode quota)",
+                        job_id,
+                        _pool_name(pool_id),
+                        idx,
+                        snap["token"],
+                        quota,
+                    )
+
+            if not reasons:
+                logger.info(
+                    "video acct select: job={} pool={} #{} token={} PASS all_filters "
+                    "status={} health={} inflight={} fail_count={}",
+                    job_id,
+                    _pool_name(pool_id),
+                    idx,
+                    snap["token"],
+                    snap["status"],
+                    snap["health"],
+                    snap["inflight"],
+                    snap["fail_count"],
+                )
 
             if reasons:
                 reject_reasons.setdefault(idx, []).extend(reasons)
+
+    logger.info(
+        "video acct select: job={} SCAN_COMPLETE total_candidates={} reject_accounts={} reject_pools={} calling_reserve_any",
+        job_id,
+        len(all_candidates),
+        sum(1 for k in reject_reasons if k != -1),
+        len(reject_reasons.get(-1, [])),
+    )
 
     result = await directory.reserve_any(
         pool_candidates=pool_candidates,
@@ -315,12 +400,15 @@ async def reserve_and_diagnose(
     if result is not None:
         selected_idx = result.idx
         logger.info(
-            "video acct select: job={} SELECTED #{} token={} pool={} mode_quota={}",
+            "video acct select: job={} SELECTED #{} token={} pool={} mode_quota={} "
+            "after_scanning {} candidates from {} pools",
             job_id,
             selected_idx,
             _mask_token(result.token),
             _pool_name(result.pool_id),
             table.quota_for(selected_idx, mode_id),
+            len(all_candidates),
+            len(pools_tried),
         )
         cand_table = _format_candidates(
             all_candidates, selected_idx, now_s_val, strategy
@@ -336,10 +424,14 @@ async def reserve_and_diagnose(
         )
     else:
         logger.warning(
-            "video acct select: job={} NO_CANDIDATE pools=[{}] strategy={}",
+            "video acct select: job={} NO_CANDIDATE pools=[{}] strategy={} "
+            "total_scanned={} rejected_accounts={} rejected_pools={}",
             job_id,
             pool_names,
             strategy,
+            len(all_candidates),
+            sum(1 for k in reject_reasons if k != -1),
+            len(reject_reasons.get(-1, [])),
         )
         if all_candidates:
             cand_table = _format_candidates(all_candidates, None, now_s_val, strategy)
@@ -368,6 +460,11 @@ async def reserve_and_diagnose(
                         "; ".join(reasons),
                     )
 
+    logger.info(
+        "video acct select: job={} EXIT result_is_none={} returning_to_caller",
+        job_id,
+        result is None,
+    )
     return result
 
 

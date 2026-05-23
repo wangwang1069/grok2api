@@ -42,6 +42,12 @@ _RETRYABLE_KINDS: frozenset[FeedbackKind] = frozenset({
 })
 
 
+def _mask_token(token: str) -> str:
+    if len(token) > 12:
+        return f"{token[:12]}..."
+    return f"{token[:6]}..."
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -106,7 +112,31 @@ async def execute_with_retry(
     tried_tokens: list[str] = []
     last_exc: BaseException | None = None
 
+    logger.info(
+        "retry executor: job={} start max_retries={} mode_id={} pools={}",
+        job_id,
+        max_retries,
+        mode_id,
+        list(pool_candidates),
+    )
+
     for attempt in range(max_retries):
+        exclude_count = len(tried_tokens)
+        excluded_preview = (
+            [_mask_token(t) for t in tried_tokens[-3:]]
+            if tried_tokens
+            else []
+        )
+
+        logger.info(
+            "retry executor: job={} attempt={}/{} start exclude_count={} excluded={}",
+            job_id,
+            attempt + 1,
+            max_retries,
+            exclude_count,
+            excluded_preview,
+        )
+
         lease = await _call_reserve(
             reserve_fn,
             directory=directory,
@@ -119,11 +149,13 @@ async def execute_with_retry(
 
         if lease is None:
             logger.warning(
-                "retry executor: job={} attempt={}/{} no_account tried={}",
+                "retry executor: job={} attempt={}/{} RESERVE_FAILED "
+                "no_account_available tried_tokens={} excluded={}",
                 job_id,
                 attempt + 1,
                 max_retries,
                 len(tried_tokens),
+                [_mask_token(t) for t in tried_tokens],
             )
             raise RateLimitError(
                 f"No available accounts (tried {len(tried_tokens)})"
@@ -131,6 +163,16 @@ async def execute_with_retry(
 
         token = lease.token
         tried_tokens.append(token)
+
+        logger.info(
+            "retry executor: job={} attempt={}/{} RESERVED token={} pool={} idx={}",
+            job_id,
+            attempt + 1,
+            max_retries,
+            _mask_token(token),
+            lease.pool_id,
+            lease.idx,
+        )
 
         try:
             result = await execute_fn(token=token)
@@ -140,43 +182,77 @@ async def execute_with_retry(
             _spawn(quota_sync_fn, token, mode_id)
 
             logger.info(
-                "retry executor: job={} success attempt={}/{} token={}...",
+                "retry executor: job={} SUCCESS attempt={}/{} token={} "
+                "total_tried={} releasing_feedback=SUCCESS",
                 job_id,
                 attempt + 1,
                 max_retries,
-                token[:12],
+                _mask_token(token),
+                len(tried_tokens),
             )
             return result, token
 
         except BaseException as exc:
             last_exc = exc
             kind = feedback_kind_fn(exc)
+            exc_type = type(exc).__name__
+            exc_msg = str(exc)[:200]
+
+            logger.info(
+                "retry executor: job={} attempt={}/{} FAILED token={} "
+                "exc_type={} kind={} msg={} will_release_and_feedback",
+                job_id,
+                attempt + 1,
+                max_retries,
+                _mask_token(token),
+                exc_type,
+                kind.name,
+                exc_msg,
+            )
 
             await release_fn(lease)
             await feedback_fn(token, kind, mode_id)
             _spawn(fail_sync_fn, token, mode_id, exc)
 
-            if kind in _RETRYABLE_KINDS and attempt < max_retries - 1:
+            is_retryable = kind in _RETRYABLE_KINDS
+            has_more = attempt < max_retries - 1
+
+            if is_retryable and has_more:
                 logger.info(
-                    "retry executor: job={} retry attempt={}/{} token={}... kind={} will_try_next",
+                    "retry executor: job={} WILL_RETRY attempt={}/{} token={} "
+                    "kind={} retryable={} remaining_attempts={} "
+                    "next_exclude_count={}",
                     job_id,
                     attempt + 1,
                     max_retries,
-                    token[:12],
+                    _mask_token(token),
                     kind.name,
+                    is_retryable,
+                    max_retries - attempt - 1,
+                    len(tried_tokens),
                 )
                 continue
 
             logger.warning(
-                "retry executor: job={} exhausted attempts={} last_token={}... kind={} retryable={}",
+                "retry executor: job={} EXHAUSTED final_attempt={}/{} "
+                "last_token={}... last_kind={} last_exc={} retryable={} "
+                "total_tried={}",
                 job_id,
                 attempt + 1,
-                token[:12],
+                max_retries,
+                _mask_token(token),
                 kind.name,
-                kind in _RETRYABLE_KINDS,
+                exc_type,
+                is_retryable,
+                len(tried_tokens),
             )
             raise
 
+    logger.error(
+        "retry executor: job={} UNREACHABLE fell_through_loop max_retries={}",
+        job_id,
+        max_retries,
+    )
     raise RateLimitError(
         f"Failed after {max_retries} attempts"
     ) from last_exc

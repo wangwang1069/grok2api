@@ -1128,7 +1128,7 @@ async def edit(
 
     acct = await _acct_dir.reserve(
         pool_candidates = spec.pool_candidates(),
-        # mode_id         = int(spec.mode_id),
+        mode_id         = int(spec.mode_id),
         now_s_override  = now_s(),
     )
     if acct is None:

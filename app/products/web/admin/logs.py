@@ -182,9 +182,13 @@ def _search_logs(
 
 
 async def _tail_stream(filename: str, lines: int = 50):
-    """Generator for SSE real-time log streaming."""
+    """Generator for SSE real-time log streaming.
+
+    Handles log rotation gracefully: when the file is renamed/truncated
+    (e.g. by logrotate), the stream detects the inode change and resets
+    to reading from the beginning of the new file.
+    """
     import json as _json
-    import time as _time
 
     d = log_dir()
     filepath = d / filename
@@ -192,25 +196,51 @@ async def _tail_stream(filename: str, lines: int = 50):
         yield f"data: {_json.dumps({'error': 'Log file not found'})}\n\n"
         return
 
+    def _safe_stat():
+        try:
+            st = filepath.stat()
+            return st.st_size, st.st_ino
+        except OSError:
+            return None, None
+
+    def _safe_read_from(pos):
+        """Read from *pos* and return (content_bytes, next_pos | None).
+
+        Returns ``(None, None)`` on any I/O error so the caller can retry.
+        """
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                f.seek(pos)
+                data = f.read()
+                try:
+                    return data, f.tell()
+                except (OSError, ValueError):
+                    return data if data else None, None
+        except (OSError, ValueError):
+            return None, None
+
     initial_lines = []
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            f.seek(0, 2)
-            file_size = f.tell()
-            if file_size > 0:
-                f.seek(max(0, file_size - 100 * 1024))
-                all_lines = f.readlines()
-            else:
-                all_lines = []
+    init_size, init_ino = _safe_stat()
+
+    if init_size is not None and init_size > 0:
+        content, pos = _safe_read_from(max(0, init_size - 100 * 1024))
+        if content:
+            all_lines = content.splitlines()
             tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
             for line in tail_lines:
                 parsed = _parse_log_line(line)
                 if parsed:
                     initial_lines.append(parsed)
-            last_pos = f.tell()
-    except OSError as e:
-        yield f"data: {_json.dumps({'error': str(e)})}\n\n"
-        return
+            if pos is not None:
+                last_pos = pos
+            else:
+                last_pos = init_size
+        else:
+            last_pos = init_size
+    else:
+        last_pos = 0
+
+    last_ino = init_ino
 
     yield f"data: {_json.dumps({'type': 'init', 'lines': initial_lines})}\n\n"
 
@@ -220,38 +250,43 @@ async def _tail_stream(filename: str, lines: int = 50):
         heartbeat_counter += 1
 
         try:
-            current_size = filepath.stat().st_size
+            current_size, current_ino = _safe_stat()
+
+            if current_size is None or current_ino is None:
+                if heartbeat_counter >= 20:
+                    yield ": heartbeat\n\n"
+                    heartbeat_counter = 0
+                continue
+
+            rotation_detected = (
+                current_ino != last_ino or current_size < last_pos
+            )
+
+            if rotation_detected:
+                last_ino = current_ino
+                last_pos = 0
 
             if current_size > last_pos:
-                try:
-                    new_content = None
-                    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                        f.seek(last_pos)
-                        new_content = f.read()
-                        last_pos = f.tell()
-                    if not new_content:
-                        continue
-                except OSError:
-                    await asyncio.sleep(0.3)
-                    continue
+                content, new_pos = _safe_read_from(last_pos)
 
-                new_lines = new_content.splitlines()
-                parsed_lines = []
-                for line in new_lines:
-                    parsed = _parse_log_line(line)
-                    if parsed:
-                        parsed_lines.append(parsed)
+                if content and new_pos is not None:
+                    last_pos = new_pos
+                    parsed_lines = []
+                    for line in content.splitlines():
+                        parsed = _parse_log_line(line)
+                        if parsed:
+                            parsed_lines.append(parsed)
 
-                if parsed_lines:
-                    yield f"data: {_json.dumps({'type': 'append', 'lines': parsed_lines})}\n\n"
-                    heartbeat_counter = 0
+                    if parsed_lines:
+                        yield f"data: {_json.dumps({'type': 'append', 'lines': parsed_lines})}\n\n"
+                        heartbeat_counter = 0
 
             elif heartbeat_counter >= 20:
                 yield ": heartbeat\n\n"
                 heartbeat_counter = 0
 
-        except OSError:
-            yield f"data: {_json.dumps({'type': 'error', 'message': 'File access error'})}\n\n"
+        except Exception:
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Stream error'})}\n\n"
             break
 
 
