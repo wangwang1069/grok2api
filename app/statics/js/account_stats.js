@@ -15,11 +15,9 @@
 
 /* eslint-disable no-unused-vars */
 const RequestStatsDashboard = (() => {
-  const ADMIN_API = '/admin/api';
   let _container = null;
   let _currentPeriod = '1d';
   let _data = null;
-  let _adminKey = null;
 
   const PERIODS = [
     { key: '1d', label: '最近1天' },
@@ -48,18 +46,12 @@ const RequestStatsDashboard = (() => {
     other: '其他',
   };
 
-  async function _getKey() {
-    if (_adminKey) return _adminKey;
-    try {
-      const raw = localStorage.getItem('admin_key') || sessionStorage.getItem('admin_key') || '';
-      _adminKey = raw;
-      return _adminKey;
-    } catch { return ''; }
-  }
-
   async function _api(method, path) {
-    const key = await _getKey();
-    const r = await fetch(ADMIN_API + path, {
+    if (typeof window._api === 'function') {
+      return window._api(method, path);
+    }
+    const key = await window.adminKey?.get?.() || '';
+    const r = await fetch((window.ADMIN_API || '/admin/api') + path, {
       method,
       headers: { Authorization: `Bearer ${key}` },
     });
