@@ -16,6 +16,7 @@ import orjson
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from .tokens import get_repo, _serialize_record
+from app.control.account.commands import ListAccountsQuery
 
 router = APIRouter(tags=["Admin - Statistics"])
 
@@ -75,14 +76,23 @@ async def request_stats(
     p_sec = period_seconds.get(period, 86400)
     cutoff_ms = (now_ms - p_sec * 1000) if p_sec > 0 else 0
 
-    records = repo.list_all()
+    all_records = []
+    page_num = 1
+    while True:
+        page = await repo.list_accounts(
+            ListAccountsQuery(page=page_num, page_size=2000)
+        )
+        all_records.extend(page.items)
+        if page_num * 2000 >= page.total:
+            break
+        page_num += 1
 
     overall_success = 0
     overall_fail = 0
     per_account: list[dict[str, Any]] = []
     error_dist: dict[str, int] = {}
 
-    for r in records:
+    for r in all_records:
         s = _serialize_record(r)
         use_count = s["use_count"]
         fail_count = s["fail_count"]
