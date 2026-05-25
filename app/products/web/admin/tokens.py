@@ -128,6 +128,7 @@ def _serialize_record(r) -> dict:
         "fail_count":  r.usage_fail_count or 0,
         "last_used_at": r.last_use_at,
         "last_fail_at": r.last_fail_at,
+        "last_fail_reason": r.last_fail_reason,
         "tags":        r.tags or [],
     }
 

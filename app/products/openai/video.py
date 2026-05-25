@@ -48,6 +48,7 @@ from app.dataplane.reverse.transport.assets import download_asset
 from app.dataplane.reverse.transport.media import create_media_post
 from . import video_account_diag
 from . import video_retry
+from . import video_segment_diag
 from ._format import (
     make_chat_response,
     make_response_id,
@@ -701,7 +702,7 @@ async def _generate_video_with_token(
             )
             await progress_cb(scaled)
 
-        artifact = await _collect_video_segment(
+        artifact = await video_segment_diag.collect_video_segment_diag(
             token=token,
             payload=payload,
             referer=referer,

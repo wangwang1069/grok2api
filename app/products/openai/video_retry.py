@@ -43,9 +43,10 @@ _RETRYABLE_KINDS: frozenset[FeedbackKind] = frozenset({
 
 
 def _mask_token(token: str) -> str:
-    if len(token) > 12:
-        return f"{token[:12]}..."
-    return f"{token[:6]}..."
+    # if len(token) > 12:
+        # return f"{token[:12]}..."
+    # return f"{token[:6]}..."
+    return token
 
 
 # ---------------------------------------------------------------------------

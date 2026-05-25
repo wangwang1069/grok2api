@@ -707,6 +707,43 @@
       flex:1;
     }
     .import-file-name.empty { color:#999 }
+
+    /* ── Request Stats Dashboard ── */
+    .rs-dashboard{background:#fff;border-radius:14px;border:1px solid #e5e5e5;padding:24px;margin-top:24px}
+    .rs-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+    .rs-title{font-size:18px;font-weight:700;color:#111}
+    .rs-period-tabs{display:flex;gap:4px;background:#f5f5f5;border-radius:8px;padding:3px}
+    .rs-tab{border:none;background:transparent;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;color:#666;transition:all .15s}
+    .rs-tab:hover{color:#333}
+    .rs-tab.active{background:#fff;color:#111;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    .rs-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+    .rs-card{background:#fafafa;border-radius:10px;padding:16px;text-align:center}
+    .rs-card-label{font-size:12px;color:#888;margin-bottom:6px}
+    .rs-card-value{font-size:24px;font-weight:700;color:#111}
+    .rs-card-success .rs-card-value{color:#16a34a}
+    .rs-card-fail .rs-card-value{color:#dc2626}
+    .rs-body{display:grid;grid-template-columns:1fr 320px;gap:24px}
+    @media(max-width:900px){.rs-body{grid-template-columns:1fr}}
+    .rs-section-title{font-size:14px;font-weight:600;color:#555;margin-bottom:12px}
+    .rs-table-wrap{overflow-x:auto}
+    .rs-table{width:100%;border-collapse:collapse;font-size:13px}
+    .rs-table th{text-align:left;padding:8px 10px;color:#888;font-weight:500;border-bottom:1px solid #eee;white-space:nowrap}
+    .rs-table td{padding:8px 10px;border-bottom:1px solid #f5f5f5;white-space:nowrap}
+    .rs-table tr:hover td{background:#fafafa}
+    .rs-mono{font-family:'Geist Mono',monospace;font-size:12px;color:#555}
+    .rs-pool{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .rs-pool-super{background:#dbeafe;color:#2563eb}
+    .rs-pool-basic{background:#fef3c7;color:#b45309}
+    .rs-pool-heavy{background:#fce7f3;color:#be185d}
+    .rs-reason{max-width:180px;overflow:hidden;text-overflow:ellipsis;color:#888;font-size:12px}
+    .rs-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .rs-bar-label{width:90px;font-size:12px;color:#555;text-align:right;flex-shrink:0}
+    .rs-bar-track{flex:1;height:20px;background:#f0f0f0;border-radius:4px;overflow:hidden}
+    .rs-bar-fill{height:100%;border-radius:4px;transition:width .3s}
+    .rs-bar-count{width:80px;font-size:12px;color:#333;font-weight:600;flex-shrink:0}
+    .rs-bar-pct{color:#999;font-weight:400}
+    .rs-empty{color:#aaa;font-size:13px;padding:20px 0;text-align:center}
+    .rs-error{color:#dc2626;padding:16px;text-align:center}
   </style>
 </head>
 <body>
@@ -850,6 +887,8 @@
       <div class="stat-num" id="s-qh" style="color:#b0632a">0</div>
     </div>
   </div>
+
+  <div id="request-stats-panel"></div>
 
   <div class="section-head" style="margin-top:40px">
     <div class="section-title-row">
@@ -2092,5 +2131,7 @@ document.addEventListener('click', (e) => {
   if (token) nsfwOne(token, enabled);
 });
 </script>
+<script src="/static/js/account_stats.js?v={{APP_VERSION}}"></script>
+<script>RequestStatsDashboard.init('#request-stats-panel');</script>
 </body>
 </html>

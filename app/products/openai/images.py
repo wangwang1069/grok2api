@@ -1042,7 +1042,7 @@ async def _run_lite_request(
                     attempt + 1,
                     max_retries,
                     exc.status,
-                    token[:8],
+                    token,
                 )
             else:
                 raise
