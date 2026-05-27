@@ -243,6 +243,24 @@ async def lifespan(app: FastAPI):
     if is_leader:
         proxy_scheduler.start()
 
+    from app.products.web.admin.request_event_log import init as _event_log_init
+    _event_log_init()
+
+    async def _event_log_cleanup_loop() -> None:
+        import asyncio as _aio
+        while True:
+            await _aio.sleep(6 * 3600)
+            try:
+                from app.products.web.admin.request_event_log import cleanup as _event_log_cleanup
+                deleted = _event_log_cleanup()
+                logger.debug("request event log cleanup: deleted_records={}", deleted)
+            except Exception:
+                pass
+
+    event_log_cleanup_task = asyncio.create_task(
+        _event_log_cleanup_loop(), name="event-log-cleanup"
+    )
+
     logger.info("application startup completed")
     yield
 
@@ -260,6 +278,12 @@ async def lifespan(app: FastAPI):
         scheduler.stop()
         proxy_scheduler.stop()
         _release_scheduler_lock()
+
+    event_log_cleanup_task.cancel()
+    try:
+        await event_log_cleanup_task
+    except asyncio.CancelledError:
+        pass
 
     set_refresh_scheduler(None)
     set_refresh_scheduler_leader(False)

@@ -278,6 +278,34 @@ def apply_feedback(
         # Reset quota to defaults.
         qs = default_quota_set(record.pool)
 
+    if feedback.kind == FeedbackKind.SUCCESS and feedback.apply_usage:
+        try:
+            from app.products.web.admin.request_event_log import record as _record_event
+            _record_event(token=record.token, success=True)
+        except Exception:
+            pass
+    elif feedback.kind not in (
+        FeedbackKind.SUCCESS,
+        FeedbackKind.RESTORE,
+        FeedbackKind.DISABLE,
+        FeedbackKind.DELETE,
+    ):
+        try:
+            from app.products.web.admin.request_event_log import record as _record_event
+            error_kind_map = {
+                FeedbackKind.UNAUTHORIZED: "auth_failure",
+                FeedbackKind.FORBIDDEN:    "forbidden",
+                FeedbackKind.RATE_LIMITED: "rate_limited",
+                FeedbackKind.SERVER_ERROR: "server_error",
+            }
+            _record_event(
+                token=record.token,
+                success=False,
+                error_kind=error_kind_map.get(feedback.kind, "other"),
+            )
+        except Exception:
+            pass
+
     return record.model_copy(
         update={
             "status": status,
