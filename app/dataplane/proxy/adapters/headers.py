@@ -6,6 +6,7 @@ All values are sanitized to ASCII-safe Latin-1 before use.
 import base64
 import random
 import re
+import secrets
 import string
 import uuid
 from typing import Optional
@@ -137,7 +138,7 @@ def _client_hints(browser: Optional[str], ua: Optional[str]) -> dict[str, str]:
     else:
         brand = "Google Chrome"
 
-    sec_ch_ua = f'"{brand}";v="{ver}", "Chromium";v="{ver}", "Not(A:Brand";v="24"'
+    sec_ch_ua = f'"Chromium";v="{ver}", "{brand}";v="{ver}", "Not/A)Brand";v="99"'
     plat = _platform(ua or "")
     arch = _arch(ua or "")
     mobile = "?1" if ("mobile" in u or plat in ("Android", "iOS")) else "?0"
@@ -251,6 +252,12 @@ def build_http_headers(
     ref_host = urlparse(ref).hostname
     site = "same-origin" if org_host and org_host == ref_host else "same-site"
 
+    # Generate W3C trace context identifiers for each request
+    trace_id = secrets.token_hex(16)  # 32 hex chars
+    span_id = secrets.token_hex(8)  # 16 hex chars
+    sentry_span_id = secrets.token_hex(8)
+    sample_rand = f"{random.random():.16f}"
+
     headers: dict[str, str] = {
         "Accept": accept,
         "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -258,7 +265,12 @@ def build_http_headers(
         "Baggage": (
             "sentry-environment=production,"
             "sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,"
-            "sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c"
+            "sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c,"
+            f"sentry-trace_id={trace_id},"
+            "sentry-org_id=4508179396558848,"
+            "sentry-sampled=false,"
+            f"sentry-sample_rand={sample_rand},"
+            "sentry-sample_rate=0"
         ),
         "Content-Type": ct,
         "Origin": org,
@@ -267,6 +279,8 @@ def build_http_headers(
         "Sec-Fetch-Dest": fd,
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": site,
+        "sentry-trace": f"{trace_id}-{sentry_span_id}-0",
+        "traceparent": f"00-{trace_id}-{span_id}-00",
         "User-Agent": ua,
         "x-statsig-id": _statsig_id(),
         "x-xai-request-id": str(uuid.uuid4()),
