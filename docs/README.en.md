@@ -8,8 +8,16 @@
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/chenyme/grok2api)
 [![Project%20Docs](https://img.shields.io/badge/Project%20Docs-0F766E?logo=readthedocs&logoColor=white)](https://blog.cheny.me/blog/posts/grok2api)
 
+> [!IMPORTANT]
+> **Project Discontinuation Notice**  
+> Due to limited personal bandwidth and multiple factors including increased official risk controls, this Grok2API project is now officially discontinued. The good news is that `x-statsig-id` can still be obtained or bypassed through other means. The repository will be archived and kept for learning and research reference only; there will be no further feature development, bug fixes, or technical support. Thank you all for your support along the way!
+
+> [!TIP]
+> **My New Project**  
+> I'd also like to recommend my new project, [DEEIX-AI: DEEIX-Chat Lightweight AI Platform](https://github.com/DEEIX-AI/DEEIX-Chat): an all-in-one enterprise AI platform for model routing, chat, files, tools, billing, identity, and operations — comprehensive yet extremely lightweight, with an idle runtime footprint of only 34 MB.
+
 > [!NOTE]
-> This project is for learning and research only. Please comply with Grok's terms of use and all applicable local laws and regulations. Do not use it for illegal purposes. If you fork the project or open a PR, please keep the original author and frontend attribution.
+> This project is for learning and research only. Please comply with Grok's terms of use and all applicable local laws and regulations. Do not use it for illegal purposes.
 
 <br>
 

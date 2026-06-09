@@ -9,8 +9,16 @@
 [![项目文档](https://img.shields.io/badge/项目文档-0F766E?logo=readthedocs&logoColor=white)](https://blog.cheny.me/blog/posts/grok2api)
 
 
+> [!IMPORTANT]
+> **项目停更公告**  
+> 因个人精力有限，且官方风控关注等多方因素影响，本 Grok2API 项目已正式停更。好消息是 x-statsig-id 仍可以通过其他手段获取/破解，仓库代码将归档并仅作学习与研究参考，后续不再进行功能开发、问题修复与技术支持。感谢各位一路以来的关注与支持！
+
+> [!TIP]
+> **个人新项目**  
+> 顺便推荐我的新项目 [DEEIX-AI：DEEIX-Chat 轻量化 AI 平台](https://github.com/DEEIX-AI/DEEIX-Chat)：企业级模型路由、对话、文件、工具、计费、身份和运维的一体化 AI 平台，全面且极致的低占用，空载运行时仅占用 34 MB。
+
 > [!NOTE]
-> 本项目仅供学习与研究交流。请务必遵循 Grok 的使用条款及当地法律法规，不得用于非法用途！二开与 PR 请保留原作者与前端标识。
+> 本项目仅供学习与研究交流。请务必遵循 Grok 的使用条款及当地法律法规，不得用于非法用途！
 
 <br>
 
